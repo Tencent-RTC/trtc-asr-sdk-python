@@ -13,6 +13,7 @@ Prerequisites:
 """
 
 import argparse
+import os
 import logging
 import sys
 
@@ -24,9 +25,9 @@ log = logging.getLogger(__name__)
 
 # ===== Configuration =====
 # Fill in your credentials before running.
-APP_ID = 0
-SDK_APP_ID = 0
-SECRET_KEY = ""
+APP_ID = int(os.environ.get("TRTC_ASR_APP_ID", "0"))
+SDK_APP_ID = int(os.environ.get("TRTC_ASR_SDK_APP_ID", "0"))
+SECRET_KEY = os.environ.get("TRTC_ASR_SECRET_KEY", "")
 
 
 def main():

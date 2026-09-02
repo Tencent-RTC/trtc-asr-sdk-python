@@ -4,6 +4,9 @@ Usage:
     python examples/file_asr.py -f test.wav
     python examples/file_asr.py -u https://example.com/test.wav
     python examples/file_asr.py -f audio.mp3 -e 16k_zh
+    python examples/file_asr.py -u https://example.com/call.wav -diarization 1
+    python examples/file_asr.py -u https://example.com/call.wav -diarization 3 \
+        -roles "teacher=https://example.com/teacher.wav"
 
 Prerequisites:
     1. Get Tencent Cloud APPID: https://console.cloud.tencent.com/cam/capi
@@ -13,11 +16,12 @@ Prerequisites:
 """
 
 import argparse
+import os
 import logging
 import sys
 import time
 
-from trtc_asr import Credential
+from trtc_asr import Credential, SpeakerRole
 from trtc_asr.file_recognizer import FileRecognizer, CreateRecTaskRequest
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -25,9 +29,9 @@ log = logging.getLogger(__name__)
 
 # ===== Configuration =====
 # Fill in your credentials before running.
-APP_ID = 0
-SDK_APP_ID = 0
-SECRET_KEY = ""
+APP_ID = int(os.environ.get("TRTC_ASR_APP_ID", "0"))
+SDK_APP_ID = int(os.environ.get("TRTC_ASR_SDK_APP_ID", "0"))
+SECRET_KEY = os.environ.get("TRTC_ASR_SECRET_KEY", "")
 
 
 def main():
@@ -37,6 +41,11 @@ def main():
     parser.add_argument("-e", "--engine", default="16k_zh_en", help="engine model type")
     parser.add_argument("--res", type=int, default=1, help="result format: 0=basic, 1=detailed, 2=with punctuation timing")
     parser.add_argument("--callback", default="", help="callback URL for receiving results")
+    parser.add_argument("--diarization", type=int, default=0, help="speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
+    parser.add_argument("--speakers", type=int, default=0, help="expected speaker count hint (0=auto)")
+    parser.add_argument("--roles", default="", help='voiceprint roles for --diarization=3: "name=https://url,name2=https://url2"')
+    parser.add_argument("--vad-level", type=int, default=-1, help="VAD profile: 0=high recall, 1=far-field; negative means unset")
+    parser.add_argument("--noise-threshold", type=float, default=-1.0, help="VAD noise threshold [0,4]; negative means unset")
     parser.add_argument("--poll", type=float, default=1.0, help="poll interval in seconds")
     parser.add_argument("--timeout", type=float, default=600.0, help="max wait time in seconds")
     args = parser.parse_args()
@@ -67,6 +76,18 @@ def main():
     credential = Credential(APP_ID, SDK_APP_ID, SECRET_KEY)
     recognizer = FileRecognizer(credential)
 
+    common_kwargs = {}
+    if args.diarization:
+        common_kwargs["speaker_diarization"] = args.diarization
+        common_kwargs["speaker_number"] = args.speakers
+        roles = parse_roles(args.roles)
+        if roles:
+            common_kwargs["speaker_roles"] = roles
+    if args.vad_level >= 0:
+        common_kwargs["vad_level"] = args.vad_level
+    if args.noise_threshold >= 0:
+        common_kwargs["noise_threshold"] = args.noise_threshold
+
     if args.url:
         log.info("Submitting URL task: %s", args.url)
         req = CreateRecTaskRequest(
@@ -76,6 +97,7 @@ def main():
             source_type=0,
             url=args.url,
             callback_url=args.callback,
+            **common_kwargs
         )
         task_id = recognizer.create_task(req)
     else:
@@ -88,6 +110,7 @@ def main():
             channel_num=1,
             res_text_format=args.res,
             callback_url=args.callback,
+            **common_kwargs
         )
         task_id = recognizer.create_task_from_data_with_options(data, req)
 
@@ -105,13 +128,37 @@ def main():
     if status.result_detail:
         print("\n=== Sentence Details ===")
         for i, detail in enumerate(status.result_detail):
-            print("[{}] {} ({}-{} ms, speed={:.1f} words/s)".format(
-                i, detail.final_sentence, detail.start_ms, detail.end_ms, detail.speech_speed))
+            speaker = ""
+            if detail.speaker_role_name:
+                speaker = " [{}]".format(detail.speaker_role_name)
+            elif detail.speaker_id:
+                speaker = " [spk{}]".format(detail.speaker_id)
+            elif detail.channel_id:
+                speaker = " [ch{}]".format(detail.channel_id)
+            print("[{}]{} {} ({}-{} ms, speed={:.1f} words/s)".format(
+                i, speaker, detail.final_sentence, detail.start_ms, detail.end_ms, detail.speech_speed))
 
             if detail.words:
                 for j, w in enumerate(detail.words):
                     print("    [{}] {} ({}-{} ms)".format(
                         j, w.word, w.offset_start_ms, w.offset_end_ms))
+
+
+def parse_roles(spec):
+    """Convert "name=url,name2=url2" into voiceprint enrollment roles."""
+    if not spec:
+        return []
+    roles = []
+    for entry in spec.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            print("Invalid --roles entry {!r}, expected name=https://url".format(entry), file=sys.stderr)
+            sys.exit(1)
+        name, audio_url = entry.split("=", 1)
+        roles.append(SpeakerRole(role_name=name.strip(), audio_url=audio_url.strip()))
+    return roles
 
 
 if __name__ == "__main__":
