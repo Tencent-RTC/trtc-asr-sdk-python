@@ -2,7 +2,7 @@
 
 基于 TRTC 鉴权体系的语音识别（ASR）Python SDK，支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
 
-> 其他语言 SDK：[Go](https://github.com/hydah/trtc-asr-sdk-go) | [Node.js](https://github.com/hydah/trtc-asr-sdk-nodejs)
+> 其他语言 SDK：[Go](https://github.com/hydah/trtc-asr-sdk-go) | [Node.js](https://github.com/hydah/trtc-asr-sdk-nodejs) | [Java](https://github.com/hydah/trtc-asr-sdk-java) | [Rust](https://github.com/hydah/trtc-asr-sdk-rust) | [C++](https://github.com/hydah/trtc-asr-sdk-cpp)
 
 ## 安装
 
