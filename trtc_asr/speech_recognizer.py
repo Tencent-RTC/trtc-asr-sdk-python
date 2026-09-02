@@ -14,7 +14,7 @@ from typing import List, Optional
 import websockets
 import websockets.asyncio.client
 
-from trtc_asr.credential import Credential
+from trtc_asr.credential import Credential, resolve_ws_endpoint
 from trtc_asr.errors import (
     ASRError,
     ERR_ALREADY_STARTED,
@@ -278,7 +278,7 @@ class SpeechRecognizer:
         self._credential = credential
         self._listener = listener if listener is not None else SpeechRecognitionListener()
         self._engine_model_type = engine_model_type
-        self._endpoint = ENDPOINT
+        self._endpoint = ""
 
         # Configuration (defaults match Go SDK)
         self._voice_format = 1  # PCM
@@ -459,6 +459,10 @@ class SpeechRecognizer:
         "auto"). It is transparently forwarded to the server as the
         "language" query parameter."""
         self._language = lang
+
+    def set_endpoint(self, endpoint: str) -> None:
+        """Override the WebSocket endpoint (for testing against a mock server)."""
+        self._endpoint = endpoint or ""
 
     def set_write_timeout(self, timeout: float) -> None:
         """Set the timeout for a single audio write, in seconds.
@@ -655,7 +659,8 @@ class SpeechRecognizer:
         )
 
         query_string = sig_params.build_query_string_with_signature(user_sig)
-        ws_url = "{}/asr/v2/{}?{}".format(self._endpoint, self._credential.app_id, query_string)
+        base = resolve_ws_endpoint(self._endpoint, self._credential.site)
+        ws_url = "{}/asr/v2/{}?{}".format(base, self._credential.app_id, query_string)
 
         # No custom headers: the handshake relies on the query string only,
         # which also keeps native browser WebSocket usable.

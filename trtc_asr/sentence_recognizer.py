@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
-from trtc_asr.credential import Credential
+from trtc_asr.credential import Credential, resolve_http_endpoint
 from trtc_asr.errors import (
     ASRError,
     ERR_AUTH_FAILED,
@@ -151,7 +151,7 @@ class SentenceRecognizer:
 
     def __init__(self, credential: Credential) -> None:
         self._credential = credential
-        self._endpoint = SENTENCE_ENDPOINT
+        self._endpoint = ""
         self._timeout = 30.0  # seconds
 
     def set_endpoint(self, endpoint: str) -> None:
@@ -191,7 +191,7 @@ class SentenceRecognizer:
             "&RequestId={}"
             "&Timestamp={}"
             "&{}".format(
-                self._endpoint,
+                resolve_http_endpoint(self._endpoint, self._credential.site),
                 self._credential.app_id,
                 self._credential.app_id,  # Secretid uses AppID per protocol
                 request_id,

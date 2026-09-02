@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ```python
 import asyncio
-from trtc_asr import Credential, SpeechRecognizer, SpeechRecognitionListener, SpeechRecognitionResponse
+from trtc_asr import Credential, SITE_INTL, SpeechRecognizer, SpeechRecognitionListener, SpeechRecognitionResponse
 
 # 只需实现关心的回调；其余事件沿用基类空实现即可。
 class MyListener(SpeechRecognitionListener):
@@ -43,6 +43,7 @@ async def main():
         sdk_app_id=1400188366,     # TRTC SDKAppID
         secret_key="your-sdk-secret-key",  # SDK密钥
     )
+    # credential.set_site(SITE_INTL)  # 国际站；不调用则走国内站
 
     # 2. 创建识别器
     listener = MyListener()
@@ -145,7 +146,9 @@ print(f"音频时长: {status.audio_duration:.2f} s")
 
 ### WebSocket 连接
 
-- **连接地址**：`wss://asr.cloud-rtc.com/asr/v2/<appid>?{请求参数}`
+- **连接地址**：
+  - 国内站：`wss://asr.cloud-rtc.com/asr/v2/<appid>?{请求参数}`
+  - 国际站：`wss://asr-intl.cloud-rtc.com/asr/v2/<appid>?{请求参数}`（`credential.set_site(SITE_INTL)`）
 
 其中 `<appid>` 为腾讯云账号的 APPID，可通过 [API 密钥管理页面](https://console.cloud.tencent.com/cam/capi) 获取。
 
@@ -269,7 +272,9 @@ def on_sentence_end(self, response):
 
 ### 一句话识别接口
 
-- **请求地址**：`https://asr.cloud-rtc.com/v1/SentenceRecognition?{请求参数}`
+- **请求地址**：
+  - 国内站：`https://asr.cloud-rtc.com/v1/SentenceRecognition?{请求参数}`
+  - 国际站：`https://asr-intl.cloud-rtc.com/v1/SentenceRecognition?{请求参数}`
 - **请求方法**：HTTP POST，Content-Type 为 `application/json; charset=utf-8`
 
 #### 鉴权方式
@@ -319,7 +324,9 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 #### 创建任务：CreateRecTask
 
-- **请求地址**：`https://asr.cloud-rtc.com/v1/CreateRecTask?{请求参数}`
+- **请求地址**：
+  - 国内站：`https://asr.cloud-rtc.com/v1/CreateRecTask?{请求参数}`
+  - 国际站：`https://asr-intl.cloud-rtc.com/v1/CreateRecTask?{请求参数}`
 - **请求方法**：HTTP POST，Content-Type 为 `application/json; charset=utf-8`
 - **并发限制**：默认 20次/秒
 
@@ -362,7 +369,9 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 
 #### 查询结果：DescribeTaskStatus
 
-- **请求地址**：`https://asr.cloud-rtc.com/v1/DescribeTaskStatus?{请求参数}`
+- **请求地址**：
+  - 国内站：`https://asr.cloud-rtc.com/v1/DescribeTaskStatus?{请求参数}`
+  - 国际站：`https://asr-intl.cloud-rtc.com/v1/DescribeTaskStatus?{请求参数}`
 - **请求方法**：HTTP POST
 - **并发限制**：默认 50次/秒
 

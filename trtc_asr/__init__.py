@@ -1,6 +1,6 @@
 """Tencent TRTC ASR SDK for Python."""
 
-from trtc_asr.credential import Credential
+from trtc_asr.credential import Credential, SITE_CN, SITE_INTL
 from trtc_asr.signature import (
     SPEAKER_DIARIZATION_OFF,
     SPEAKER_DIARIZATION_CLUSTER,
@@ -31,6 +31,8 @@ from trtc_asr.sdkinfo import SDK_VERSION
 
 __all__ = [
     "Credential",
+    "SITE_CN",
+    "SITE_INTL",
     "SpeakerRole",
     "SPEAKER_DIARIZATION_OFF",
     "SPEAKER_DIARIZATION_CLUSTER",
