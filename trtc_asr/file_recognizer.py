@@ -38,6 +38,9 @@ from trtc_asr.errors import (
     ERR_SERVER_ERROR,
     ERR_TIMEOUT,
 )
+from trtc_asr.params import validate_speaker_diarization, validate_vad_tuning
+from trtc_asr.sdkinfo import sdk_report_query
+from trtc_asr.signature import SpeakerRole
 from trtc_asr.usersig import gen_user_sig
 
 logger = logging.getLogger(__name__)
@@ -77,6 +80,52 @@ class CreateRecTaskRequest:
     convert_num_mode: int = 0
     hotword_id: str = ""
     hotword_list: str = ""
+    customization_id: str = ""
+
+    # replace_text_id is the replacement word table ID used for forced text
+    # replacement on the recognized result.
+    replace_text_id: str = ""
+
+    # language forces the audio language on engines that support it
+    # (e.g. bigmodel). Empty means automatic detection.
+    language: str = ""
+
+    # speaker_diarization enables speaker diarization (说话人分离).
+    # 0: off (default), 1: anonymous clustering, 3: voiceprint role
+    # authentication.
+    #
+    # When enabled, each sentence in result_detail carries speaker_id; with
+    # mode 3 and speaker_roles / voiceprint_ids supplied, speaker_role_name is
+    # filled too.
+    #
+    # For stereo recordings (channel_num=2) do NOT enable this: the server
+    # auto-fills channel_id (1=left, 2=right) per sentence instead.
+    speaker_diarization: int = 0
+
+    # speaker_number hints the expected number of speakers.
+    # 0: auto detection (default). Only used when speaker_diarization > 0.
+    speaker_number: int = 0
+
+    # speaker_roles registers temporary voiceprints (enrollment audio URL +
+    # role name) for this task. Only used when speaker_diarization is 3.
+    speaker_roles: List[SpeakerRole] = field(default_factory=list)
+
+    # voiceprint_ids lists previously enrolled voiceprint IDs.
+    # Only used when speaker_diarization is 3.
+    voiceprint_ids: List[str] = field(default_factory=list)
+
+    # vad_silence_ms is the silence detection threshold in milliseconds.
+    vad_silence_ms: int = 0
+
+    # vad_level selects the VAD profile: 0 = high recall (default),
+    # 1 = far-field noise filtering. None means "not configured", so an
+    # explicit 0 can be distinguished from the server default.
+    vad_level: Optional[int] = None
+
+    # noise_threshold fine-tunes VAD noise suppression, range [0, 4]. When
+    # set it overrides the profile selected by vad_level. None means "not
+    # configured" (0 is a valid, meaningful threshold).
+    noise_threshold: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Convert to JSON body dict matching API field names."""
@@ -107,6 +156,31 @@ class CreateRecTaskRequest:
             d["HotwordId"] = self.hotword_id
         if self.hotword_list:
             d["HotwordList"] = self.hotword_list
+        if self.customization_id:
+            d["CustomizationId"] = self.customization_id
+        if self.replace_text_id:
+            d["ReplaceTextId"] = self.replace_text_id
+        if self.language:
+            d["Language"] = self.language
+        if self.speaker_diarization:
+            d["SpeakerDiarization"] = self.speaker_diarization
+            if self.speaker_number:
+                d["SpeakerNumber"] = self.speaker_number
+        # SpeakerRoles / VoiceprintIds only apply to the voiceprint role
+        # authentication mode.
+        if self.speaker_diarization == 3:
+            if self.speaker_roles:
+                d["SpeakerRoles"] = [r.to_dict() for r in self.speaker_roles]
+            if self.voiceprint_ids:
+                d["VoiceprintIds"] = list(self.voiceprint_ids)
+        if self.vad_silence_ms:
+            d["VadSilenceMs"] = self.vad_silence_ms
+        # Explicit zeros must survive: None means "not configured" while 0 is
+        # a valid, meaningful value for both.
+        if self.vad_level is not None:
+            d["VadLevel"] = self.vad_level
+        if self.noise_threshold is not None:
+            d["NoiseThreshold"] = self.noise_threshold
 
         return d
 
@@ -134,6 +208,23 @@ class SentenceDetail:
     speech_speed: float = 0.0
     silence_time: int = 0
 
+    # speaker_id is the speaker number of this sentence, returned when
+    # speaker_diarization is enabled.
+    speaker_id: int = 0
+
+    # speaker_role_name is the enrolled role name of this sentence, returned
+    # when speaker_diarization=3 matched one of the requested speaker_roles /
+    # voiceprint_ids. Empty when no enrolled speaker matched.
+    speaker_role_name: str = ""
+
+    # channel_id is the audio channel of this sentence for stereo recordings
+    # (channel_num=2): 1=left, 2=right. Prefer it over speaker_id in that case.
+    channel_id: int = 0
+
+    # language is the detected language of this sentence, when the engine
+    # reports one.
+    language: str = ""
+
 
 @dataclass
 class TaskStatus:
@@ -142,6 +233,7 @@ class TaskStatus:
     rec_task_id: str = ""
     status: int = 0
     status_str: str = ""
+    progress: int = 0
     result: str = ""
     error_msg: str = ""
     result_detail: List[SentenceDetail] = field(default_factory=list)
@@ -170,12 +262,17 @@ class TaskStatus:
                     words=words,
                     speech_speed=sd.get("SpeechSpeed", 0.0),
                     silence_time=sd.get("SilenceTime", 0),
+                    speaker_id=sd.get("SpeakerId", 0),
+                    speaker_role_name=sd.get("SpeakerRoleName", ""),
+                    channel_id=sd.get("ChannelId", 0),
+                    language=sd.get("Language", ""),
                 )
             )
         return cls(
             rec_task_id=data.get("RecTaskId", ""),
             status=data.get("Status", 0),
             status_str=data.get("StatusStr", ""),
+            progress=data.get("Progress", 0),
             result=data.get("Result", ""),
             error_msg=data.get("ErrorMsg", ""),
             result_detail=result_detail,
@@ -369,13 +466,15 @@ class FileRecognizer:
             "?AppId={}"
             "&Secretid={}"
             "&RequestId={}"
-            "&Timestamp={}".format(
+            "&Timestamp={}"
+            "&{}".format(
                 self._endpoint,
                 path,
                 self._credential.app_id,
                 self._credential.app_id,
                 request_id,
                 int(time.time()),
+                sdk_report_query(),
             )
         )
 
@@ -422,3 +521,10 @@ class FileRecognizer:
             raise ASRError(ERR_INVALID_PARAM, "url is required when source_type=0")
         if req.source_type == SOURCE_TYPE_DATA and not req.data:
             raise ASRError(ERR_INVALID_PARAM, "data is required when source_type=1")
+        validate_speaker_diarization(
+            req.speaker_diarization,
+            req.speaker_number,
+            req.speaker_roles,
+            req.voiceprint_ids,
+        )
+        validate_vad_tuning(req.vad_level, req.noise_threshold)

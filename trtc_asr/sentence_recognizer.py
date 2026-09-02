@@ -28,6 +28,7 @@ from trtc_asr.errors import (
     ERR_READ_FAILED,
     ERR_SERVER_ERROR,
 )
+from trtc_asr.sdkinfo import sdk_report_query
 from trtc_asr.usersig import gen_user_sig
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,9 @@ class SentenceRecognitionRequest:
     convert_num_mode: int = 1
     hotword_id: str = ""
     hotword_list: str = ""
+    customization_id: str = ""
     input_sample_rate: int = 0
+    language: str = ""
 
     def to_dict(self) -> dict:
         """Convert to the JSON body dict matching API field names."""
@@ -91,8 +94,12 @@ class SentenceRecognitionRequest:
             d["HotwordId"] = self.hotword_id
         if self.hotword_list:
             d["HotwordList"] = self.hotword_list
+        if self.customization_id:
+            d["CustomizationId"] = self.customization_id
         if self.input_sample_rate:
             d["InputSampleRate"] = self.input_sample_rate
+        if self.language:
+            d["Language"] = self.language
 
         return d
 
@@ -182,12 +189,14 @@ class SentenceRecognizer:
             "?AppId={}"
             "&Secretid={}"
             "&RequestId={}"
-            "&Timestamp={}".format(
+            "&Timestamp={}"
+            "&{}".format(
                 self._endpoint,
                 self._credential.app_id,
                 self._credential.app_id,  # Secretid uses AppID per protocol
                 request_id,
                 int(time.time()),
+                sdk_report_query(),
             )
         )
 
