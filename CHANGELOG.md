@@ -7,8 +7,9 @@
 
 ## [未发布]
 
-首个正式版本尚未发布。发布时把本节标题改为 `## [0.1.0] - YYYY-MM-DD`，
-并同步更新 `trtc_asr/sdkinfo.py` 的 `SDK_VERSION` 与 `pyproject.toml` 的 `version`。
+## [1.0.0] - 2026-09-02
+
+首个正式版本。
 
 ### 新增
 

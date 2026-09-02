@@ -22,7 +22,7 @@ from urllib.parse import quote
 # SDK_VERSION is the released version of this SDK. It is the single source of
 # truth for the version: ``trtc_asr.__version__`` re-exports it, and it must be
 # kept in sync with the ``version`` field in pyproject.toml.
-SDK_VERSION = "0.1.0"
+SDK_VERSION = "1.0.0"
 
 # SDK_LANGUAGE identifies the SDK implementation language.
 SDK_LANGUAGE = "python"
