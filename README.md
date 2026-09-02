@@ -28,22 +28,10 @@ pip install -r requirements.txt
 import asyncio
 from trtc_asr import Credential, SpeechRecognizer, SpeechRecognitionListener, SpeechRecognitionResponse
 
-# 实现回调接口
+# 只需实现关心的回调；其余事件沿用基类空实现即可。
 class MyListener(SpeechRecognitionListener):
-    def on_recognition_start(self, response: SpeechRecognitionResponse) -> None:
-        print(f"Recognition started, voice_id: {response.voice_id}")
-
-    def on_sentence_begin(self, response: SpeechRecognitionResponse) -> None:
-        print(f"Sentence begin, index: {response.result.index}")
-
-    def on_recognition_result_change(self, response: SpeechRecognitionResponse) -> None:
-        print(f"Result: {response.result.voice_text_str}")
-
     def on_sentence_end(self, response: SpeechRecognitionResponse) -> None:
         print(f"Sentence end: {response.result.voice_text_str}")
-
-    def on_recognition_complete(self, response: SpeechRecognitionResponse) -> None:
-        print(f"Complete, voice_id: {response.voice_id}")
 
     def on_fail(self, response, error: Exception) -> None:
         print(f"Failed: {error}")

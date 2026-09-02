@@ -7,7 +7,6 @@ import json
 import logging
 import traceback
 import uuid
-from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import List, Optional
@@ -216,30 +215,28 @@ class SpeechRecognitionResponse:
         )
 
 
-class SpeechRecognitionListener(ABC):
-    """Callback interface for speech recognition events."""
+class SpeechRecognitionListener:
+    """Callback interface for speech recognition events.
 
-    @abstractmethod
+    Every method has a default no-op implementation. Subclass and override
+    only the events you care about.
+    """
+
     def on_recognition_start(self, response: SpeechRecognitionResponse) -> None:
         """Called when the recognition session starts."""
 
-    @abstractmethod
     def on_sentence_begin(self, response: SpeechRecognitionResponse) -> None:
         """Called when a new sentence begins."""
 
-    @abstractmethod
     def on_recognition_result_change(self, response: SpeechRecognitionResponse) -> None:
         """Called when intermediate results are available."""
 
-    @abstractmethod
     def on_sentence_end(self, response: SpeechRecognitionResponse) -> None:
         """Called when a sentence ends with the final result."""
 
-    @abstractmethod
     def on_recognition_complete(self, response: SpeechRecognitionResponse) -> None:
         """Called when the entire recognition session completes."""
 
-    @abstractmethod
     def on_fail(self, response: Optional[SpeechRecognitionResponse], error: Exception) -> None:
         """Called when an error occurs during recognition."""
 
@@ -276,10 +273,10 @@ class SpeechRecognizer:
         self,
         credential: Credential,
         engine_model_type: str,
-        listener: SpeechRecognitionListener,
+        listener: Optional[SpeechRecognitionListener] = None,
     ) -> None:
         self._credential = credential
-        self._listener = listener
+        self._listener = listener if listener is not None else SpeechRecognitionListener()
         self._engine_model_type = engine_model_type
         self._endpoint = ENDPOINT
 
