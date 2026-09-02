@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import traceback
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -252,11 +253,13 @@ class SpeechRecognizer:
       (via stop() or a terminal error) it cannot be restarted. Create a new
       instance to reconnect.
     - All set_xxx options must be configured before start().
-    - Recognition callbacks are delivered on the internal read-loop task; a
-      faulty callback never crashes the loop (exceptions are swallowed and
-      logged, mirroring the Go SDK's panic shielding).
+    - Recognition callbacks are delivered on the internal read-loop task. A
+      faulty callback never crashes the loop: the exception is recovered,
+      the session is finished, and the failure is surfaced via on_fail
+      (mirroring the Go SDK's panic shielding).
     - stop() is safe to call from a recognition callback: it detects the
       re-entry and returns without waiting, so it cannot self-block.
+      Calling stop() after the session has already stopped is a no-op.
 
     Example::
 
@@ -311,6 +314,10 @@ class SpeechRecognizer:
         self._state = _State.IDLE
         self._ws: Optional[websockets.asyncio.client.ClientConnection] = None
         self._read_task: Optional[asyncio.Task] = None
+        # Set when a user callback raises; the read loop then skips further
+        # dispatch (so a panicking on_sentence_end on a final frame does not
+        # still deliver on_recognition_complete).
+        self._callback_failed = False
 
     # ---- Configuration setters ----
 
@@ -540,8 +547,11 @@ class SpeechRecognizer:
 
         For terminal callbacks (on_recognition_complete / terminal
         on_fail), the recognizer has already advanced to stopped before
-        callback dispatch, so stop() raises not-running immediately.
+        callback dispatch, so stop() is a no-op. Fire-and-forget
+        ``create_task(stop())`` from those callbacks is therefore safe.
         """
+        if self._state == _State.STOPPED:
+            return
         if self._state != _State.RUNNING:
             raise ASRError(ERR_NOT_STARTED, "recognizer not running")
 
@@ -659,11 +669,14 @@ class SpeechRecognizer:
 
     async def _read_loop(self) -> None:
         try:
+            self._callback_failed = False
             self._safe_callback(self._listener.on_recognition_start, SpeechRecognitionResponse(
                 code=0,
                 message="success",
                 voice_id=self._voice_id,
             ))
+            if self._callback_failed:
+                return
 
             async for message in self._ws:
                 if isinstance(message, bytes):
@@ -694,7 +707,10 @@ class SpeechRecognizer:
                 if resp.final == 1:
                     self._finish()
                     self._dispatch_event(resp)
-                    self._safe_callback(self._listener.on_recognition_complete, resp)
+                    if not self._callback_failed:
+                        self._safe_callback(
+                            self._listener.on_recognition_complete, resp, _shield=True
+                        )
                     return
 
                 # Skip the connection acknowledgement frame. After connect,
@@ -709,6 +725,8 @@ class SpeechRecognizer:
                     continue
 
                 self._dispatch_event(resp)
+                if self._callback_failed:
+                    return
         except websockets.ConnectionClosed:
             if self._state < _State.STOPPING:
                 self._finish()
@@ -737,18 +755,15 @@ class SpeechRecognizer:
             self._safe_callback(self._listener.on_sentence_end, resp)
 
     def _finish(self) -> None:
-        """Advance the recognizer to the terminal stopped state and close the
-        connection. It is invoked before terminal callbacks (so a stop() /
-        write() from inside a callback returns immediately) and again from
-        the read loop's finally block as a catch-all."""
+        """Advance the recognizer to the terminal stopped state.
+
+        It is invoked before terminal callbacks (so a stop()/write() from
+        inside a callback returns immediately). The WebSocket is closed by
+        the read loop's finally block via ``_close``: closing from here with
+        ``create_task`` races the still-running ``async for`` and surfaces as
+        ``aclose(): asynchronous generator is already running``.
+        """
         self._state = _State.STOPPED
-        if self._ws is not None:
-            close_ws = self._ws
-            self._ws = None
-            try:
-                asyncio.get_running_loop().create_task(close_ws.close())
-            except RuntimeError:
-                pass
 
     async def _wait_for_read_loop(self) -> None:
         if self._read_task is None:
@@ -758,17 +773,36 @@ class SpeechRecognizer:
         except asyncio.TimeoutError:
             await self._close()
 
-    def _safe_callback(self, callback, *args) -> None:
+    def _safe_callback(self, callback, *args, _shield: bool = False) -> None:
         """Deliver a listener callback while shielding the read loop from an
-        exception raised inside the user-supplied listener. A faulty callback
-        must never crash the read loop or prevent its cleanup from running."""
+        exception raised inside the user-supplied listener.
+
+        A faulty non-terminal callback never crashes the host process: the
+        session is finished and the error is surfaced via on_fail, matching
+        the Go SDK's readLoop recover. ``_shield=True`` is used for on_fail
+        and on_recognition_complete so a second exception cannot recurse.
+        """
         try:
             callback(*args)
-        except Exception:
-            logger.exception("listener callback raised, ignored")
+        except Exception as exc:
+            if _shield or self._callback_failed:
+                logger.exception("listener callback raised, ignored")
+                return
+            logger.exception("listener callback raised")
+            self._callback_failed = True
+            self._finish()
+            self._safe_on_fail(
+                None,
+                ASRError(
+                    ERR_READ_FAILED,
+                    "recovered from panic in readLoop: {}\n{}".format(
+                        exc, traceback.format_exc()
+                    ),
+                ),
+            )
 
     def _safe_on_fail(self, response, error) -> None:
-        self._safe_callback(self._listener.on_fail, response, error)
+        self._safe_callback(self._listener.on_fail, response, error, _shield=True)
 
     async def _close(self) -> None:
         if self._ws is not None:

@@ -49,6 +49,15 @@ def test_write_before_start_raises_not_started():
     assert exc_info.value.code == ERR_NOT_STARTED
 
 
+def test_stop_when_already_stopped_is_noop():
+    recognizer = _new_recognizer()
+    recognizer._state = _State.STOPPED
+
+    asyncio.run(recognizer.stop())
+
+    assert recognizer._state == _State.STOPPED
+
+
 def test_stop_without_connection_raises_not_started():
     recognizer = _new_recognizer()
     recognizer._state = _State.RUNNING

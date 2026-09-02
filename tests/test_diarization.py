@@ -163,7 +163,7 @@ def test_read_loop_skips_ack_frame_and_finishes_on_final():
     assert len(end_resp.result.speaker_segments) == 2
 
     # Terminal response: recognizer reached the stopped state before the
-    # complete callback, so a re-entrant stop() would fail immediately.
+    # complete callback, so a re-entrant stop() is a no-op.
     assert recognizer._state == _State.STOPPED
     assert listener.failed is None
 
@@ -186,8 +186,10 @@ def test_read_loop_dispatches_final_without_slice_type_2_nowhere():
     assert recognizer._state == _State.STOPPED
 
 
-def test_read_loop_swallows_listener_exception():
-    """A faulty callback must never crash the read loop (Go: panic shielding)."""
+def test_read_loop_surfaces_listener_exception_via_on_fail():
+    """A faulty callback must never crash the read loop (Go: panic shielding).
+    Matching Go, the session is finished and the error is surfaced via
+    on_fail; on_recognition_complete is not delivered after the panic."""
 
     class _BrokenListener(_CaptureListener):
         def on_sentence_end(self, response):
@@ -204,9 +206,11 @@ def test_read_loop_swallows_listener_exception():
     asyncio.run(recognizer._read_loop())
 
     assert recognizer._state == _State.STOPPED
-    assert listener.failed is None
-    # complete still delivered after the broken sentence-end callback.
-    assert ("complete", "v1") in listener.events
+    assert listener.failed is not None
+    assert "listener bug" in str(listener.failed[1])
+    assert "panic" in str(listener.failed[1])
+    kinds = [e[0] for e in listener.events]
+    assert "complete" not in kinds
 
 
 # ---------------------------------------------------------------- connect
