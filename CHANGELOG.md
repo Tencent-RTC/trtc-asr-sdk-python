@@ -7,6 +7,12 @@
 
 ## [未发布]
 
+### 变更
+
+- 仓库迁移至 `github.com/Tencent-RTC/trtc-asr-sdk-python`，README 中
+  `pip install git+https://...` 安装地址同步更新；功能与 API 无任何变化。
+  旧仓库保留 `v1.0.0` 并归档，不再更新。
+
 ## [1.0.0] - 2026-09-02
 
 首个正式版本。

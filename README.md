@@ -2,20 +2,20 @@
 
 基于 TRTC 鉴权体系的语音识别（ASR）Python SDK，支持实时语音识别（WebSocket）、一句话识别（HTTP）和录音文件识别（异步 HTTP）三种模式。
 
-> 其他语言 SDK：[Go](https://github.com/hydah/trtc-asr-sdk-go) | [Node.js](https://github.com/hydah/trtc-asr-sdk-nodejs) | [Java](https://github.com/hydah/trtc-asr-sdk-java) | [Rust](https://github.com/hydah/trtc-asr-sdk-rust) | [C++](https://github.com/hydah/trtc-asr-sdk-cpp)
+> 其他语言 SDK：[Go](https://github.com/Tencent-RTC/trtc-asr-sdk-go) | [Node.js](https://github.com/Tencent-RTC/trtc-asr-sdk-nodejs) | [Java](https://github.com/Tencent-RTC/trtc-asr-sdk-java) | [Rust](https://github.com/Tencent-RTC/trtc-asr-sdk-rust) | [C++](https://github.com/Tencent-RTC/trtc-asr-sdk-cpp)
 
 ## 安装
 
 **集成到你的项目中**（推荐）：
 
 ```bash
-pip install git+https://github.com/hydah/trtc-asr-sdk-python.git
+pip install git+https://github.com/Tencent-RTC/trtc-asr-sdk-python.git
 ```
 
 **clone 后运行示例**：
 
 ```bash
-git clone https://github.com/hydah/trtc-asr-sdk-python.git
+git clone https://github.com/Tencent-RTC/trtc-asr-sdk-python.git
 cd trtc-asr-sdk-python
 pip install -r requirements.txt
 ```
@@ -462,7 +462,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 运行示例：
 
 ```bash
-git clone https://github.com/hydah/trtc-asr-sdk-python.git
+git clone https://github.com/Tencent-RTC/trtc-asr-sdk-python.git
 cd trtc-asr-sdk-python
 pip install -r requirements.txt
 
