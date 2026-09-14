@@ -29,8 +29,15 @@ def main() -> None:
     parser.add_argument("-u", "--url", default="", help="audio URL (<=12h, <=1GB)")
     parser.add_argument("--diarization", type=int, default=0,
                         help="speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
-    parser.add_argument("engine", nargs="?", default="16k_zh_en")
+    parser.add_argument("--lang", default="",
+                        help="language hint; when omitted, the bigmodel engine uses zh")
+    parser.add_argument("engine", help="engine model type, required (e.g. bigmodel)")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless --lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     sdk_app_id = int(os.environ.get("TRTC_ASR_SDK_APP_ID", "0"))
     secret_key = os.environ.get("TRTC_ASR_SECRET_KEY", "")
@@ -48,6 +55,7 @@ def main() -> None:
         channel_num=1,
         res_text_format=1,  # include word-level timestamps
         speaker_diarization=args.diarization,
+        language=args.lang,
     )
     if args.url:
         req.source_type = 0  # SOURCE_TYPE_URL

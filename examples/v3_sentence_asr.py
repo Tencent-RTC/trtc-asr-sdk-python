@@ -29,8 +29,15 @@ def main() -> None:
                         help="wav|pcm|ogg-opus|mp3|m4a")
     parser.add_argument("--word-info", type=int, default=0,
                         help="word-level timestamps: 0=off, 1=on, 2=with punctuation")
-    parser.add_argument("engine", nargs="?", default="16k_zh_en")
+    parser.add_argument("--lang", default="",
+                        help="language hint; when omitted, the bigmodel engine uses zh")
+    parser.add_argument("engine", help="engine model type, required (e.g. bigmodel)")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless --lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     sdk_app_id = int(os.environ.get("TRTC_ASR_SDK_APP_ID", "0"))
     secret_key = os.environ.get("TRTC_ASR_SECRET_KEY", "")
@@ -44,17 +51,15 @@ def main() -> None:
     with open(args.file, "rb") as f:
         data = f.read()
 
-    if args.word_info:
-        resp = recognizer.recognize_data_with_options(
-            data,
-            TranscribeRequest(
-                engine_model_type=args.engine,
-                voice_format=args.format,
-                word_info=args.word_info,
-            ),
-        )
-    else:
-        resp = recognizer.recognize_data(data, args.format, args.engine)
+    resp = recognizer.recognize_data_with_options(
+        data,
+        TranscribeRequest(
+            engine_model_type=args.engine,
+            voice_format=args.format,
+            word_info=args.word_info,
+            language=args.lang,
+        ),
+    )
 
     print(f"Result: {resp.result}")
     print(f"Duration: {resp.audio_duration} ms  RequestId: {resp.request_id}")

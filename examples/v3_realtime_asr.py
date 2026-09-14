@@ -49,11 +49,20 @@ class MyListener(v3.SpeechRecognitionListener):
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-f", "--file", default="test.pcm", help="PCM audio file")
-    parser.add_argument("-e", "--engine", default="16k_zh_en", help="engine model type")
-    parser.add_argument("-lang", default="", help="language hint (bigmodel)")
+    parser.add_argument(
+        "-e", "--engine", required=True, help="engine model type, required (e.g. bigmodel)"
+    )
+    parser.add_argument(
+        "-lang", default="", help="language hint; when omitted, the bigmodel engine uses zh"
+    )
     parser.add_argument("-diarization", type=int, default=0, help="0=off 1=cluster 3=voiceprint")
     parser.add_argument("-word-info", type=int, default=0, help="word-level timestamps")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless -lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     # Credentials come from the environment: TRTC_ASR_SDK_APP_ID and
     # TRTC_ASR_SECRET_KEY (v3 does not need the Tencent Cloud APPID).

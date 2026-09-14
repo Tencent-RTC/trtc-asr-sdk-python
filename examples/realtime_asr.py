@@ -133,10 +133,14 @@ async def process_audio(worker_id: int, file_path: str, engine: str, opts: argpa
 async def main() -> None:
     parser = argparse.ArgumentParser(description="TRTC Real-time ASR Example")
     parser.add_argument("-f", "--file", default="test.pcm", help="PCM audio file path")
-    parser.add_argument("-e", "--engine", default="16k_zh_en", help="Engine model type")
+    parser.add_argument(
+        "-e", "--engine", required=True, help="engine model type, required (e.g. bigmodel)"
+    )
     parser.add_argument("-c", "--concurrency", type=int, default=1, help="Concurrent sessions")
     parser.add_argument("-l", "--loop", action="store_true", help="Loop mode")
-    parser.add_argument("--lang", default="", help="language hint for the bigmodel engine (e.g. zh, en, auto)")
+    parser.add_argument(
+        "--lang", default="", help="language hint; when omitted, the bigmodel engine uses zh"
+    )
     parser.add_argument("--word-info", type=int, default=0, help="word-level timing: 0=off, 1=on, 2=with punctuation")
     parser.add_argument("--diarization", type=int, default=0, help="speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
     parser.add_argument("--speakers", type=int, default=0, help="expected speaker count hint (0=auto)")
@@ -144,6 +148,11 @@ async def main() -> None:
     parser.add_argument("--vad-level", type=int, default=-1, help="VAD profile: 0=high recall, 1=far-field; negative means unset")
     parser.add_argument("--noise-threshold", type=float, default=-1.0, help="VAD noise threshold [0,4]; negative means unset")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless --lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     if APP_ID == 0 or SDK_APP_ID == 0 or not SECRET_KEY:
         print(

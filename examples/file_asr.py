@@ -38,7 +38,12 @@ def main():
     parser = argparse.ArgumentParser(description="TRTC File ASR Example")
     parser.add_argument("-f", "--file", default="", help="path to local audio file (≤5MB)")
     parser.add_argument("-u", "--url", default="", help="URL of audio file (≤1GB, ≤12h)")
-    parser.add_argument("-e", "--engine", default="16k_zh_en", help="engine model type")
+    parser.add_argument(
+        "-e", "--engine", required=True, help="engine model type, required (e.g. bigmodel)"
+    )
+    parser.add_argument(
+        "--lang", default="", help="language hint; when omitted, the bigmodel engine uses zh"
+    )
     parser.add_argument(
         "--res",
         type=int,
@@ -55,6 +60,11 @@ def main():
     parser.add_argument("--poll", type=float, default=1.0, help="poll interval in seconds")
     parser.add_argument("--timeout", type=float, default=600.0, help="max wait time in seconds")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless --lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     if APP_ID == 0 or SDK_APP_ID == 0 or not SECRET_KEY:
         print(
@@ -83,6 +93,8 @@ def main():
     recognizer = FileRecognizer(credential)
 
     common_kwargs = {}
+    if args.lang:
+        common_kwargs["language"] = args.lang
     if args.diarization:
         common_kwargs["speaker_diarization"] = args.diarization
         common_kwargs["speaker_number"] = args.speakers

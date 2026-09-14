@@ -18,7 +18,12 @@ import logging
 import sys
 
 from trtc_asr import Credential
-from trtc_asr.sentence_recognizer import SentenceRecognizer, SentenceRecognitionRequest
+from trtc_asr.sentence_recognizer import (
+    SOURCE_TYPE_DATA,
+    SOURCE_TYPE_URL,
+    SentenceRecognitionRequest,
+    SentenceRecognizer,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -34,10 +39,20 @@ def main():
     parser = argparse.ArgumentParser(description="TRTC Sentence ASR Example")
     parser.add_argument("-f", "--file", default="", help="path to local audio file")
     parser.add_argument("-u", "--url", default="", help="URL of audio file")
-    parser.add_argument("-e", "--engine", default="16k_zh_en", help="engine model type")
+    parser.add_argument(
+        "-e", "--engine", required=True, help="engine model type, required (e.g. bigmodel)"
+    )
+    parser.add_argument(
+        "--lang", default="", help="language hint; when omitted, the bigmodel engine uses zh"
+    )
     parser.add_argument("-fmt", "--format", default="pcm", help="audio format (pcm, wav, mp3, ...)")
     parser.add_argument("-w", "--word-info", type=int, default=0, help="word-level timing: 0=hide, 1=show, 2=with punctuation")
     args = parser.parse_args()
+
+    # The bigmodel engine is best used with an explicit language; every other
+    # engine falls back to server-side detection unless --lang is given.
+    if not args.lang and args.engine == "bigmodel":
+        args.lang = "zh"
 
     if APP_ID == 0 or SDK_APP_ID == 0 or not SECRET_KEY:
         print(
@@ -68,22 +83,28 @@ def main():
 
     if args.url:
         log.info("Recognizing from URL: %s", args.url)
-        result = recognizer.recognize_url(args.url, args.format, args.engine)
+        req = SentenceRecognitionRequest(
+            eng_service_type=args.engine,
+            source_type=SOURCE_TYPE_URL,
+            voice_format=args.format,
+            url=args.url,
+            word_info=args.word_info,
+            language=args.lang,
+        )
+        result = recognizer.recognize(req)
     else:
         with open(args.file, "rb") as f:
             data = f.read()
         log.info("Recognizing from file: %s (%d bytes)", args.file, len(data))
 
-        if args.word_info > 0:
-            req = SentenceRecognitionRequest(
-                eng_service_type=args.engine,
-                source_type=1,
-                voice_format=args.format,
-                word_info=args.word_info,
-            )
-            result = recognizer.recognize_data_with_options(data, req)
-        else:
-            result = recognizer.recognize_data(data, args.format, args.engine)
+        req = SentenceRecognitionRequest(
+            eng_service_type=args.engine,
+            source_type=SOURCE_TYPE_DATA,
+            voice_format=args.format,
+            word_info=args.word_info,
+            language=args.lang,
+        )
+        result = recognizer.recognize_data_with_options(data, req)
 
     print("Result: {}".format(result.result))
     print("Audio Duration: {} ms".format(result.audio_duration))
