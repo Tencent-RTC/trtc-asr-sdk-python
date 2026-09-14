@@ -17,8 +17,6 @@ Two credentials are needed: `SdkAppID` and `SecretKey`. The domestic and interna
 - **China site**: [Quick Start](https://xai.cloud-rtc.com/#gettingStarted) — register a Tencent Cloud account and complete real-name verification → create an application in the [TRTC console](https://console.cloud.tencent.com/trtc/app) → activate "AI Speech Recognition" (free trial available)
 - **International site**: [Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — register at [trtc.io](https://www.trtc.io) (a Tencentcloud account is created automatically, no real-name verification) → create an application at [console.trtc.io](https://console.trtc.io) → activate "AI Speech Recognition" (RTC Engine Lite or above only; Free Trial is not supported)
 
-> **v3 availability**: the four v3 endpoints are gated by the server-side `EnableV3Route` switch (per SdkAppID). While it is off, the realtime endpoint answers `4001` and the HTTP endpoints answer `404`. Ask the service team to enable it for your SdkAppID before integrating.
-
 ## Protocol (v3)
 
 ### Endpoints
@@ -226,7 +224,7 @@ Response (`TranscriptionStatus`): `code`, `message`, `request_id`, `transcriptio
 | code | Meaning | Typical trigger |
 |------|---------|-----------------|
 | `4000` | Audio sent too fast | At most 3s of audio per 1s wall-clock |
-| `4001` | Invalid parameter | params validation failed / `EnableV3Route` off / `voice_id` conflict |
+| `4001` | Invalid parameter | params validation failed / `voice_id` conflict |
 | `4002` | Authentication failed | missing `auth` / bad `usersig` / querying another account's task |
 | `4003` | Service not activated | scheduling refused |
 | `4006` | Concurrency limit | account concurrency or connection limit |
@@ -235,7 +233,7 @@ Response (`TranscriptionStatus`): `code`, `message`, `request_id`, `transcriptio
 | `4010` | Unknown text message | invalid start frame JSON or `type` other than `start` |
 | `5000`/`5001`/`5002` | Server error | no worker available / scheduling failed; retryable |
 
-HTTP status vs. `code`: invalid parameter `400`, authentication failure **`200`**, v3 not enabled `404`, concurrency `429`, body too large `413`, scheduling failure `503` — **always trust the `code` in the body**.
+HTTP status vs. `code`: invalid parameter `400`, authentication failure **`200`**, interface not enabled `404`, concurrency `429`, body too large `413`, scheduling failure `503` — **always trust the `code` in the body**.
 
 ## Installation
 
@@ -389,9 +387,7 @@ trtc-asr-sdk-python/
 
 ## FAQ
 
-**v3 or v2?** For new integrations use v3 (`trtc_asr.v3`): only SdkAppID + SecretKey, a cleaner protocol, and `start()` returns auth/parameter errors synchronously — provided `EnableV3Route` is enabled for your SdkAppID. Existing v2 users can stay as they are.
-
-**Why `4001` / `404`?** Most likely the `EnableV3Route` switch is not enabled for your SdkAppID: the realtime endpoint answers `4001 v3 interface not enabled` and the HTTP endpoints answer `404`. Ask the service team to enable it.
+**v3 or v2?** For new integrations use v3 (`trtc_asr.v3`): only SdkAppID + SecretKey, a cleaner protocol, and `start()` returns auth/parameter errors synchronously. Existing v2 users can stay as they are.
 
 **Can I query a v1 task ID through v3?** No. The v1 `RecTaskId` and the v3 `transcription_id` are separate task spaces.
 

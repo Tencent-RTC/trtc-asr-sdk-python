@@ -16,8 +16,6 @@
 - **国内站**：[快速接入指南](https://xai.cloud-rtc.com/#gettingStarted) — 注册腾讯云账号并完成实名认证 → 在 [TRTC 控制台](https://console.cloud.tencent.com/trtc/app)创建应用 → 开通「AI 智能识别」（体验版可免费试用）
 - **国际站**：[Quick Start](https://xai-intl.cloud-rtc.com/#gettingStarted) — 在 [trtc.io](https://www.trtc.io) 注册（自动开通 Tencentcloud 账号，无需实名认证）→ 在 [console.trtc.io](https://console.trtc.io) 创建应用 → 开通「AI Speech Recognition」（仅 RTC Engine Lite 及以上包月套餐，Free Trial 不支持）
 
-> **v3 灰度**：v3 四个接口受服务端 `EnableV3Route` 灰度开关（SDKAppID 维度）控制。未开启时在线回 `4001`、离线回 HTTP 404。接入前请先联系服务团队为您的 SDKAppID 开启。
-
 ## 协议说明（v3）
 
 ### 接口路径
@@ -225,7 +223,7 @@ sequenceDiagram
 | code | 说明 | 常见触发 |
 |------|------|----------|
 | `4000` | 音频发送过多 | 1 秒内最多发送 3 秒音频 |
-| `4001` | 参数不合法 | params 校验失败 / `EnableV3Route` 未开启 / `voice_id` 冲突 |
+| `4001` | 参数不合法 | params 校验失败 / `voice_id` 冲突 |
 | `4002` | 鉴权失败 | `auth` 缺失 / `usersig` 验签不通过 / 查询他人任务 |
 | `4003` | 服务未开通 | 调度拒绝 |
 | `4006` | 并发超限 | 账号并发或连接数超限 |
@@ -234,7 +232,7 @@ sequenceDiagram
 | `4010` | 未知文本消息 | 首帧 JSON 非法 / `type` 非 `start` |
 | `5000`/`5001`/`5002` | 服务端内部错误 | 无可用机器 / 调度失败，可重试 |
 
-离线接口的 HTTP 状态码与 `code` 组合：参数错误 `400`、鉴权失败 **`200`**、灰度未开 `404`、并发超限 `429`、body 过大 `413`、调度失败 `503`——**一律以 body 的 `code` 为准**。
+离线接口的 HTTP 状态码与 `code` 组合：参数错误 `400`、鉴权失败 **`200`**、接口未开通 `404`、并发超限 `429`、body 过大 `413`、调度失败 `503`——**一律以 body 的 `code` 为准**。
 
 ## 安装
 
@@ -407,12 +405,8 @@ trtc-asr-sdk-python/
 
 ### v3 和 v2 怎么选？
 
-- **新接入**：推荐 v3（`trtc_asr.v3` 子包）——只需 SDKAppID + SecretKey，协议更干净（auth/params 分块、扁平响应、数字错误码），`start()` 同步返回鉴权/参数错误。前提是服务端已为您的 SDKAppID 开启 `EnableV3Route` 灰度。
+- **新接入**：推荐 v3（`trtc_asr.v3` 子包）——只需 SDKAppID + SecretKey，协议更干净（auth/params 分块、扁平响应、数字错误码），`start()` 同步返回鉴权/参数错误。
 - **存量**：v2（`trtc_asr` 顶层导出）继续全量可用，无需任何改动。
-
-### v3 报 4001 / 404 是什么问题？
-
-最常见原因是服务端 `EnableV3Route` 灰度未为您的 SDKAppID 开启：在线会得到 `4001 v3 interface not enabled`，离线会得到 HTTP 404。请联系服务团队开启。
 
 ### v1 的任务 ID 能用 v3 接口查询吗？
 

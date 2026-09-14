@@ -8,9 +8,6 @@ Credentials come from environment variables:
   TRTC_ASR_SDK_APP_ID, TRTC_ASR_SECRET_KEY
 (v3 does not need the Tencent Cloud APPID.)
 
-Prerequisite: the server has enabled the EnableV3Route gray switch for
-your SDKAppID, otherwise requests fail with 404/4001.
-
 Usage: python examples/v3_sentence_asr.py [-f audio.pcm] [--format pcm]
        [--word-info 1] [engine]
 """
