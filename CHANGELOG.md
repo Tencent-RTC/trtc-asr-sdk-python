@@ -7,6 +7,20 @@
 
 ## [未发布]
 
+### 修复
+
+- **录音文件识别（v2）词级时间戳恒为 0**：`DescribeTaskStatus` 返回的
+  `ResultDetail[].Words[]` 里时间偏移字段名是 `StartTime` / `EndTime`，
+  SDK 此前按 `OffsetStartMs` / `OffsetEndMs` 解析，取不到值，
+  导致 `SentenceWords.offset_start_ms` / `offset_end_ms` 全部为 0
+  （示例输出 `今 (0-0 ms)`）。现在优先读 `StartTime` / `EndTime`，并保留
+  `OffsetStartMs` / `OffsetEndMs` 作为回退兼容。
+- 文档（`docs/v2_protocol.md`）修正 `ResTextFormat` 说明：它是结果详细度而
+  非时间戳开关——`0` 时 `ResultDetail` 为空、完全拿不到时间戳，`1` 及以上
+  才返回句级 / 词级时间戳；同时补充 `Result` 实为字幕格式文本
+  （`[0:0.020,0:2.560,1]  文本`）、`ResultDetail[]` 完整字段表，标注实测日期
+  2026-09-14。
+
 ## [1.2.1] - 2026-09-10
 
 ### 变更

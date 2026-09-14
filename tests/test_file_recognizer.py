@@ -210,7 +210,7 @@ class TestResultParsing:
                     "StartMs": 0,
                     "EndMs": 1000,
                     "WordsNum": 1,
-                    "Words": [{"Word": "hello", "OffsetStartMs": 0, "OffsetEndMs": 500}],
+                    "Words": [{"Word": "hello", "StartTime": 0, "EndTime": 500}],
                     "SpeechSpeed": 5.0,
                 }
             ],
@@ -223,4 +223,42 @@ class TestResultParsing:
         assert detail.end_ms == 1000
         assert len(detail.words) == 1
         assert detail.words[0].word == "hello"
+        assert detail.words[0].offset_start_ms == 0
         assert detail.words[0].offset_end_ms == 500
+
+    def test_task_status_words_accept_offset_spelling(self):
+        """OffsetStartMs / OffsetEndMs is the older spelling; keep accepting it
+        as a fallback."""
+        data = {
+            "RecTaskId": "task-789",
+            "Status": 2,
+            "ResultDetail": [
+                {
+                    "FinalSentence": "hello",
+                    "Words": [{"Word": "hello", "OffsetStartMs": 120, "OffsetEndMs": 640}],
+                }
+            ],
+        }
+        detail = TaskStatus.from_dict(data).result_detail[0]
+        assert detail.words[0].offset_start_ms == 120
+        assert detail.words[0].offset_end_ms == 640
+
+    def test_task_status_words_explicit_zero_is_kept(self):
+        """A leading word legitimately starts at 0 and must not fall through
+        to the fallback key."""
+        data = {
+            "RecTaskId": "task-0",
+            "Status": 2,
+            "ResultDetail": [
+                {
+                    "FinalSentence": "你好",
+                    "Words": [
+                        {"Word": "你", "StartTime": 0, "EndTime": 160},
+                        {"Word": "好", "StartTime": 160, "EndTime": 400},
+                    ],
+                }
+            ],
+        }
+        words = TaskStatus.from_dict(data).result_detail[0].words
+        assert [w.offset_start_ms for w in words] == [0, 160]
+        assert [w.offset_end_ms for w in words] == [160, 400]

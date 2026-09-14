@@ -39,7 +39,13 @@ def main():
     parser.add_argument("-f", "--file", default="", help="path to local audio file (≤5MB)")
     parser.add_argument("-u", "--url", default="", help="URL of audio file (≤1GB, ≤12h)")
     parser.add_argument("-e", "--engine", default="16k_zh_en", help="engine model type")
-    parser.add_argument("--res", type=int, default=1, help="result format: 0=basic, 1=detailed, 2=with punctuation timing")
+    parser.add_argument(
+        "--res",
+        type=int,
+        default=1,
+        help="result detail level: 0=Result only (no timestamps), 1=sentence+word timings, "
+        "2=like 1 with punctuation, 3=like 2 (subtitle)",
+    )
     parser.add_argument("--callback", default="", help="callback URL for receiving results")
     parser.add_argument("--diarization", type=int, default=0, help="speaker diarization: 0=off, 1=cluster, 3=voiceprint roles")
     parser.add_argument("--speakers", type=int, default=0, help="expected speaker count hint (0=auto)")

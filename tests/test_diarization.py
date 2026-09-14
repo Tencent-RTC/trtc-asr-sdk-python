@@ -470,7 +470,7 @@ def test_file_recognizer_describe_task_status_speaker_fields():
                             "StartMs": 0,
                             "EndMs": 1200,
                             "WordsNum": 2,
-                            "Words": [{"Word": "你", "OffsetStartMs": 0, "OffsetEndMs": 120}],
+                            "Words": [{"Word": "你", "StartTime": 0, "EndTime": 120}],
                             "SpeakerId": 1,
                             "SpeakerRoleName": "teacher",
                             "Language": "zh",

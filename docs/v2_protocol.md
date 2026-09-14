@@ -345,7 +345,7 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 |------|------|------|------|
 | `EngineModelType` | 是 | String | 引擎类型：`16k_zh`(中文)、`16k_zh_en`(中英文) |
 | `ChannelNum` | 是 | Integer | 声道数：`1` 单声道；`2` 双声道（8k 电话，自动区分说话人并返回 `ChannelId`：1=左/2=右） |
-| `ResTextFormat` | 是 | Integer | 结果格式：`0` 基础、`1` 含词级时间、`2` 含标点时间 |
+| `ResTextFormat` | 是 | Integer | 结果详细度，**不是时间戳开关**：`0` 只返回 `Result`（`ResultDetail` 为空，拿不到任何时间戳）；`1` 返回 `ResultDetail`（句级 + 词级时间戳）；`2` 同 `1` 且 `SliceSentence` 带标点；`3` 同 `2`（字幕模式）。要时间戳就用 `1` 及以上 |
 | `SourceType` | 是 | Integer | `0` URL 上传、`1` 本地数据（base64） |
 | `Url` | 条件 | String | 音频 URL（SourceType=0，时长≤12h，大小≤1GB） |
 | `Data` | 条件 | String | base64 编码音频数据（SourceType=1，大小≤5MB） |
@@ -396,10 +396,23 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 | `Status` | Integer | `0` 等待、`1` 执行中、`2` 成功、`3` 失败 |
 | `StatusStr` | String | waiting / executing / success / failed |
 | `Progress` | Integer | 处理进度（0-100） |
-| `Result` | String | 识别结果文本 |
+| `Result` | String | 识别结果文本。实测是**字幕格式**：`[声道:起始秒,声道:结束秒,序号]  文本\n`（如 `[0:0.020,0:2.560,1]  今天天气不错，挺风和日丽的。`），不是纯文本；纯文本请用 `ResultDetail[].FinalSentence` 拼接 |
 | `ErrorMsg` | String | 失败原因 |
-| `ResultDetail` | Array | 句级详细结果（含词级时间偏移） |
+| `ResultDetail` | Array | 句级详细结果（含句级 / 词级时间戳），仅 `ResTextFormat >= 1` 时返回 |
 | `AudioDuration` | Float | 音频时长（秒） |
+
+`ResultDetail[]` 字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `FinalSentence` | String | 该句最终文本 |
+| `SliceSentence` | String | 该句分词文本（空格分隔）；`ResTextFormat=1` 不带标点，`>=2` 带标点 |
+| `StartMs` / `EndMs` | Integer | 该句起止时间（ms） |
+| `WordsNum` | Integer | 词数 |
+| `Words[]` | Array | 词级时间戳，字段为 `Word` / `StartTime` / `EndTime`（ms） |
+| `SpeechSpeed` | Float | 语速（字/秒） |
+| `SilenceTime` | Integer | 尾部静音时长（ms，部分引擎返回） |
+| `Language` | String | 该句识别语言（引擎上报时） |
 
 `ResultDetail[]` 中与说话人相关的字段：
 
@@ -408,7 +421,9 @@ HTTP 接口的鉴权信息携带在请求 Header 中（与流式不同，不走 
 | `SpeakerId` | Integer | 说话人编号，开启 `SpeakerDiarization` 后返回 |
 | `SpeakerRoleName` | String | 角色名，`SpeakerDiarization=3` 命中注册声纹时返回 |
 | `ChannelId` | Integer | 双声道（`ChannelNum=2`）时的声道编号：1=左、2=右；此场景下优先用它区分说话人 |
-| `Language` | String | 该句识别语言（引擎上报时） |
+
+> 上表字段名于 **2026-09-14** 用 `16k_zh` 与 `bigmodel` 两个引擎实测确认（`resources/test.wav`，2.4s）。
+> SDK 的 `SentenceWords.offset_start_ms` / `offset_end_ms` 会优先读 `StartTime` / `EndTime`，并回退兼容 `OffsetStartMs` / `OffsetEndMs`。
 
 ---
 

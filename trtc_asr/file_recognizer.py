@@ -64,7 +64,16 @@ class CreateRecTaskRequest:
 
     engine_model_type: str = ""
     channel_num: int = 1
+
+    # res_text_format selects how detailed the result is. It is NOT a
+    # timestamp on/off switch: timestamps live in ResultDetail, which the
+    # server only returns for values >= 1.
+    #   0: Result text only, ResultDetail comes back empty (no timings)
+    #   1: ResultDetail with sentence timings + word timings (default)
+    #   2: like 1, and SliceSentence keeps punctuation
+    #   3: like 2 (subtitle mode)
     res_text_format: int = 1
+
     source_type: int = SOURCE_TYPE_DATA
 
     # Conditional fields
@@ -185,9 +194,28 @@ class CreateRecTaskRequest:
         return d
 
 
+def _word_offset(word: dict, primary: str, fallback: str) -> int:
+    """Read a word-level offset, accepting both wire spellings.
+
+    The server spells the offsets ``StartTime`` / ``EndTime``;
+    ``OffsetStartMs`` / ``OffsetEndMs`` is accepted as a fallback. Explicit
+    zeros are kept.
+    """
+    for key in (primary, fallback):
+        value = word.get(key)
+        if value is not None:
+            return value
+    return 0
+
+
 @dataclass
 class SentenceWords:
-    """Word-level timing information within a sentence."""
+    """Word-level timing information within a sentence.
+
+    Offsets are milliseconds relative to the start of the audio, spelled
+    ``StartTime`` / ``EndTime`` on the wire; ``OffsetStartMs`` /
+    ``OffsetEndMs`` is accepted as a fallback.
+    """
 
     word: str = ""
     offset_start_ms: int = 0
@@ -246,8 +274,8 @@ class TaskStatus:
             words = [
                 SentenceWords(
                     word=w.get("Word", ""),
-                    offset_start_ms=w.get("OffsetStartMs", 0),
-                    offset_end_ms=w.get("OffsetEndMs", 0),
+                    offset_start_ms=_word_offset(w, "StartTime", "OffsetStartMs"),
+                    offset_end_ms=_word_offset(w, "EndTime", "OffsetEndMs"),
                 )
                 for w in sd.get("Words", []) or []
             ]
