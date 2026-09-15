@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
@@ -78,6 +79,27 @@ def test_sdk_language_and_version_constants():
     assert SDK_TYPE == "server"
     # The version has a single source of truth: __init__ re-exports sdkinfo's.
     assert __version__ == SDK_VERSION
+
+
+def test_sdk_version_matches_the_pyproject_manifest():
+    # The version is written down twice: sdkinfo.py and pyproject.toml. A release
+    # that bumps only one ships a package whose reported version disagrees with
+    # its own metadata, which is exactly what happened to the Node.js SDK's 1.2.3.
+    # Parse the manifest rather than importing it, because tomllib is 3.11+ and
+    # this package still supports 3.8.
+    manifest = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    manifest_version = None
+    in_project_table = False
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_project_table = stripped == "[project]"
+            continue
+        if in_project_table and stripped.split("=", 1)[0].strip() == "version":
+            manifest_version = stripped.split("=", 1)[1].strip().strip('"')
+            break
+    assert manifest_version, "pyproject.toml has no version under [project]"
+    assert manifest_version == SDK_VERSION
 
 
 def test_sdk_platform_normalizes_known_systems():
