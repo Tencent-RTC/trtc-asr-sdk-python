@@ -52,16 +52,39 @@ class _Listener(SpeechRecognitionListener):
 
 class _FakeWS:
     """WebSocket double supporting the v3 handshake (recv for the ack) and
-    async iteration for downlink frames."""
+    async iteration for downlink frames.
 
-    def __init__(self, ack, downlink=None):
+    ``downlink`` frames are delivered as soon as the read loop asks for them;
+    ``after_end`` frames are held back until the client sends
+    ``{"type": "end"}``, mirroring a real server that only emits the terminal
+    ``final=1`` response once the session is closed. Without that gate the
+    fake would push the whole scripted session to the read loop before
+    ``stop()`` runs, and the recognizer would already be stopped — making the
+    ``end`` frame assertion below depend on event-loop scheduling.
+    """
+
+    def __init__(self, ack, downlink=None, after_end=None):
         self.sent = []
         self._ack = json.dumps(ack) if not isinstance(ack, str) else ack
         self._downlink = [json.dumps(m) if not isinstance(m, str) else m for m in downlink or []]
+        self._after_end = [json.dumps(m) if not isinstance(m, str) else m for m in after_end or []]
+        # Created lazily inside the read loop: on Python 3.8/3.9 constructing
+        # asyncio.Event() outside a running loop resolves (and caches) the
+        # thread's event loop, which raises once asyncio.run has torn it down.
+        self._end_received = None
+        self._end_sent = False
         self.closed = False
 
     async def send(self, data):
         self.sent.append(data)
+        if isinstance(data, str):
+            try:
+                if json.loads(data).get("type") == "end":
+                    self._end_sent = True
+                    if self._end_received is not None:
+                        self._end_received.set()
+            except (ValueError, AttributeError):
+                pass
 
     async def recv(self):
         return self._ack
@@ -70,9 +93,16 @@ class _FakeWS:
         return self
 
     async def __anext__(self):
-        if not self._downlink:
-            raise StopAsyncIteration
-        return self._downlink.pop(0)
+        if self._downlink:
+            return self._downlink.pop(0)
+        if self._after_end:
+            if self._end_received is None:
+                self._end_received = asyncio.Event()
+                if self._end_sent:
+                    self._end_received.set()
+            await self._end_received.wait()
+            return self._after_end.pop(0)
+        raise StopAsyncIteration
 
     async def close(self):
         self.closed = True
@@ -264,12 +294,13 @@ def test_normal_flow(monkeypatch):
         _result_frame(0),
         _result_frame(1, text="你好"),
         _result_frame(2, text="你好。"),
-        _result_frame(2, final=1, text="你好。"),
     ]
+    # The terminal final=1 frame only arrives after the client's end frame.
+    after_end = [_result_frame(2, final=1, text="你好。")]
 
     async def run():
         listener = _Listener()
-        ws = _FakeWS(_ack(), downlink)
+        ws = _FakeWS(_ack(), downlink, after_end=after_end)
         _patch_connect(monkeypatch, ws)
         recognizer = make_recognizer(listener)
         await recognizer.start()
@@ -314,7 +345,9 @@ def test_mid_session_error(monkeypatch):
 def test_write_frame_too_large(monkeypatch):
     async def run():
         listener = _Listener()
-        ws = _FakeWS(_ack(), [_result_frame(2, final=1)])
+        # Held back until the end frame so the session is still running when
+        # write() performs its size check.
+        ws = _FakeWS(_ack(), after_end=[_result_frame(2, final=1)])
         _patch_connect(monkeypatch, ws)
         recognizer = make_recognizer(listener)
         await recognizer.start()
