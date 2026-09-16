@@ -138,10 +138,6 @@ class Word:
 def build_auth_block(credential: Credential, request_id: str = "") -> Dict[str, Any]:
     """Build the v3 auth block. request_id is the UserSig identifier for the
     offline interfaces; the server binds the signature to it.
-
-    The protocol's internal "business" field (gray/routing dimension managed
-    by the service side, default "OUTER") is not part of the public SDK
-    surface and is never sent by this client.
     """
     user_sig = credential.user_sig
     if not user_sig:

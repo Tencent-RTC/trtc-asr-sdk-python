@@ -197,9 +197,7 @@ def test_start_frame_wire(monkeypatch):
     auth = frame["auth"]
     assert auth["sdkappid"] == "1400000000"
     assert auth["usersig"]
-    # business is a server-side internal gray dimension; the SDK must not
-    # send it.
-    assert "business" not in auth
+    assert set(auth) == {"sdkappid", "usersig"}
 
     params = frame["params"]
     assert params["voice_id"] == "voice-1"
@@ -274,8 +272,8 @@ def test_start_auth_error_sync(monkeypatch):
     asyncio.run(run())
 
 
-def test_start_gray_disabled_error_sync(monkeypatch):
-    """A gray-disabled endpoint answers 4001 with a WS error frame."""
+def test_start_4001_error_sync(monkeypatch):
+    """A 4001 error frame rejects start() synchronously."""
 
     async def run():
         listener = _Listener()

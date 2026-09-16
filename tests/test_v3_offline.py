@@ -113,7 +113,7 @@ def test_transcribe_wire():
     assert auth["sdkappid"] == "1400000000"
     assert auth["usersig"]
     assert auth["request_id"]
-    assert "business" not in auth
+    assert set(auth) == {"sdkappid", "usersig", "request_id"}
 
     params = body["params"]
     assert params["engine_model_type"] == "16k_zh_en"
