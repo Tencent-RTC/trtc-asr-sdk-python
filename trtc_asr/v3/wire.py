@@ -29,6 +29,12 @@ STREAM_FRAME_MAX_BYTES = 256 * 1024
 # acknowledgement (in seconds).
 ACK_TIMEOUT = 5.0
 
+# speaker_context_ack_timeout replaces ACK_TIMEOUT while resuming a speaker
+# context (sync mode + a stored speaker_context_id): the first response is
+# delayed until the server has loaded the stored speaker snapshot and restored
+# it in the diarization session.
+SPEAKER_CONTEXT_ACK_TIMEOUT = 15.0
+
 # SourceType for the HTTP interfaces.
 SOURCE_TYPE_URL = 0
 SOURCE_TYPE_DATA = 1
@@ -43,6 +49,26 @@ TASK_STATUS_FAILED = 3
 SPEAKER_DIARIZATION_OFF = 0
 SPEAKER_DIARIZATION_CLUSTER = 1
 SPEAKER_DIARIZATION_VOICEPRINT = 3
+
+# Speaker-context ("断点续传") modes for enable_speaker_context. They turn
+# speaker diarization into a resumable session: the server stores the stable
+# speaker anchors and hands back an opaque speaker_context_id, which a later
+# connection passes back to keep the same speakers on the same ids. Both modes
+# require speaker diarization.
+SPEAKER_CONTEXT_OFF = 0
+# Sync: when a speaker_context_id is supplied the first response waits for the
+# stored snapshot, so it reports how the session started through
+# SpeakerContinue.continue_status.
+SPEAKER_CONTEXT_SYNC = 1
+# Async: the first response answers immediately with the speaker_context_id
+# only (no continue_status); the server restores in the background.
+SPEAKER_CONTEXT_ASYNC = 2
+
+# continue_status values of SpeakerContinue.continue_status.
+CONTINUE_STATUS_FRESH = "fresh"
+CONTINUE_STATUS_RESUMED = "resumed"
+CONTINUE_STATUS_DEGRADED = "degraded"
+CONTINUE_STATUS_DISABLED = "disabled"
 
 
 def new_credential(sdk_app_id: int, secret_key: str) -> Credential:
@@ -100,6 +126,62 @@ class SpeakerRole:
 
     def to_wire(self) -> Dict[str, Any]:
         return {"role_name": self.role_name, "audio_url": self.audio_url}
+
+
+@dataclass
+class SpeakerContinue:
+    """Speaker-context handshake result carried by the first server response
+    (``speaker_continue``). Absent unless the session set
+    ``enable_speaker_context``.
+
+    Persist ``speaker_context_id`` on the client side and pass it back through
+    :meth:`SpeechRecognizer.set_speaker_context_id` when reconnecting within
+    its lifetime (24h by default); the response of a later session is
+    authoritative, so always overwrite the stored value. Wait for the first
+    response before sending audio: in sync mode with a stored id the server
+    answers only after the snapshot has been applied.
+    """
+
+    # One of CONTINUE_STATUS_FRESH / RESUMED / DEGRADED / DISABLED. Empty in
+    # async mode, where the server answers before the snapshot is loaded.
+    # Unknown values mean "no information".
+    continue_status: str = ""
+    speaker_context_id: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SpeakerContinue":
+        return cls(
+            continue_status=data.get("continue_status", "") or "",
+            speaker_context_id=data.get("speaker_context_id", "") or "",
+        )
+
+
+def validate_speaker_context(mode: int, diarization: int) -> None:
+    """Check the speaker-context ("断点续传") options.
+
+    enable_speaker_context accepts 0 (off), 1 (sync) or 2 (async); the server
+    silently normalizes anything else to off, but a caller that meant to
+    enable resumption is better served by an immediate error than by a session
+    that quietly never returns a speaker_context_id.
+
+    The server ignores the speaker-context parameters entirely when speaker
+    diarization is off, so that combination is a caller mistake as well
+    (mirroring how speaker roles / voiceprint ids require mode 3).
+
+    speaker_context_id itself is not format-checked on purpose: the server
+    treats an unknown or expired id as "start a new session", so a stale value
+    degrades gracefully instead of failing the connection.
+    """
+    if mode not in (SPEAKER_CONTEXT_OFF, SPEAKER_CONTEXT_SYNC, SPEAKER_CONTEXT_ASYNC):
+        raise ASRError(
+            ERR_INVALID_PARAM,
+            "EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got {}".format(mode),
+        )
+    if mode != SPEAKER_CONTEXT_OFF and diarization == SPEAKER_DIARIZATION_OFF:
+        raise ASRError(
+            ERR_INVALID_PARAM,
+            "EnableSpeakerContext requires SpeakerDiarization=1 or 3",
+        )
 
 
 @dataclass

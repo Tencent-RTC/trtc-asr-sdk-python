@@ -12,6 +12,11 @@ import websockets.asyncio.client
 
 from trtc_asr.errors import ASRError, ERR_INVALID_PARAM
 from trtc_asr.v3 import (
+    CONTINUE_STATUS_FRESH,
+    CONTINUE_STATUS_RESUMED,
+    SPEAKER_CONTEXT_ASYNC,
+    SPEAKER_CONTEXT_SYNC,
+    SPEAKER_DIARIZATION_CLUSTER,
     SPEAKER_DIARIZATION_VOICEPRINT,
     Context,
     ContextKV,
@@ -24,15 +29,20 @@ from trtc_asr.v3.speech_recognizer import (
     MAX_VOICE_ID_LEN,
     STREAM_FRAME_MAX_BYTES,
 )
+from trtc_asr.v3.wire import ACK_TIMEOUT, SPEAKER_CONTEXT_ACK_TIMEOUT
+
+_CONTEXT_ID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 
 class _Listener(SpeechRecognitionListener):
     def __init__(self):
         self.events = []
         self.failures = []
+        self.start_responses = []
 
     def on_recognition_start(self, response):
         self.events.append(("start", response.voice_id))
+        self.start_responses.append(response)
 
     def on_sentence_begin(self, response):
         self.events.append(("begin", response.result.index))
@@ -172,6 +182,8 @@ def test_start_frame_wire(monkeypatch):
         [SpeakerRole(role_name="teacher", audio_url="https://example.com/t.wav")]
     )
     recognizer.set_voiceprint_ids(["vp-1"])
+    recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC)
+    recognizer.set_speaker_context_id(_CONTEXT_ID)
     recognizer.set_context(
         Context(text="bg", terms=["ASR"], general=[ContextKV(key="domain", value="Meeting")])
     )
@@ -211,6 +223,9 @@ def test_start_frame_wire(monkeypatch):
     assert params["hotword_list"] == "深度学习|10"
     assert params["speaker_diarization"] == 3
     assert params["voiceprint_ids"] == ["vp-1"]
+    # Speaker context ("断点续传"): the mode and the id travel in params.
+    assert params["enable_speaker_context"] == SPEAKER_CONTEXT_SYNC
+    assert params["speaker_context_id"] == _CONTEXT_ID
     # speaker_roles elements are snake_case (role_name / audio_url), not the
     # v2 CamelCase wire.
     assert params["speaker_roles"] == [
@@ -240,6 +255,8 @@ def test_start_frame_defaults_tri_state():
         "hotword_list",
         "speaker_diarization",
         "context",
+        "enable_speaker_context",
+        "speaker_context_id",
     ):
         assert absent not in params, "unset setter must omit the wire field"
 
@@ -249,6 +266,18 @@ def test_start_frame_defaults_tri_state():
     assert params["voice_format"] == 1
     assert params["engine_model_type"] == "16k_zh_en"
     assert params["sdk_info"]["sdk_lang"] == "python"
+
+
+def test_speaker_context_id_omitted_when_mode_off():
+    """A stored id must not ride along once the mode is turned back off."""
+    recognizer = make_recognizer()
+    recognizer.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER)
+    recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC)
+    recognizer.set_speaker_context_id(_CONTEXT_ID)
+    recognizer.set_enable_speaker_context(0)
+    params = recognizer._build_params()
+    assert "enable_speaker_context" not in params
+    assert "speaker_context_id" not in params
 
 
 # ---------------------------------------------------------------- ack
@@ -285,6 +314,89 @@ def test_start_4001_error_sync(monkeypatch):
         assert exc_info.value.code == 4001
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "ack_extra,mode,want_status,want_id",
+    [
+        # 1st connection: the server issues an id and reports fresh.
+        ({"speaker_continue": {"continue_status": "fresh", "speaker_context_id": _CONTEXT_ID}},
+         SPEAKER_CONTEXT_SYNC, CONTINUE_STATUS_FRESH, _CONTEXT_ID),
+        # Reconnect with a stored id: the anchors were restored.
+        ({"speaker_continue": {"continue_status": "resumed", "speaker_context_id": _CONTEXT_ID}},
+         SPEAKER_CONTEXT_SYNC, CONTINUE_STATUS_RESUMED, _CONTEXT_ID),
+        # Async mode answers before the snapshot is applied: id only.
+        ({"speaker_continue": {"speaker_context_id": _CONTEXT_ID}},
+         SPEAKER_CONTEXT_ASYNC, "", _CONTEXT_ID),
+        # Context off: no speaker_continue at all.
+        ({}, None, None, None),
+    ],
+)
+def test_speaker_continue_handshake(monkeypatch, ack_extra, mode, want_status, want_id):
+    """The first response's speaker_continue block reaches both the
+    speaker_continue property and the on_recognition_start callback."""
+
+    async def run():
+        listener = _Listener()
+        ws = _FakeWS(_ack("v1", **ack_extra))
+        _patch_connect(monkeypatch, ws)
+        recognizer = make_recognizer(listener)
+        if mode is not None:
+            recognizer.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER)
+            recognizer.set_enable_speaker_context(mode)
+
+        await recognizer.start()
+        result = recognizer.speaker_continue
+        await recognizer.stop()
+        return result
+
+    result = asyncio.run(run())
+
+    if want_id is None:
+        assert result is None, "no speaker context must yield no handshake result"
+    else:
+        assert result is not None
+        assert result.continue_status == want_status
+        assert result.speaker_context_id == want_id
+
+
+def test_speaker_continue_reaches_on_recognition_start(monkeypatch):
+    async def run():
+        listener = _Listener()
+        ws = _FakeWS(
+            _ack("v1", speaker_continue={"continue_status": "resumed", "speaker_context_id": _CONTEXT_ID})
+        )
+        _patch_connect(monkeypatch, ws)
+        recognizer = make_recognizer(listener)
+        recognizer.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER)
+        recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC)
+        await recognizer.start()
+        await recognizer.stop()
+        return listener
+
+    listener = asyncio.run(run())
+    assert listener.start_responses, "on_recognition_start must have fired"
+    delivered = listener.start_responses[0].speaker_continue
+    assert delivered is not None
+    assert delivered.continue_status == CONTINUE_STATUS_RESUMED
+    assert delivered.speaker_context_id == _CONTEXT_ID
+
+
+def test_ack_timeout_widens_only_while_resuming():
+    """Only sync mode with a stored id makes the server apply the snapshot
+    before answering the handshake."""
+    recognizer = make_recognizer()
+    assert recognizer._ack_timeout() == ACK_TIMEOUT
+
+    recognizer.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER)
+    recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC)
+    assert recognizer._ack_timeout() == ACK_TIMEOUT  # first issue answers at once
+
+    recognizer.set_speaker_context_id(_CONTEXT_ID)
+    assert recognizer._ack_timeout() == SPEAKER_CONTEXT_ACK_TIMEOUT
+
+    recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_ASYNC)
+    assert recognizer._ack_timeout() == ACK_TIMEOUT
 
 
 def test_normal_flow(monkeypatch):
@@ -380,6 +492,14 @@ def test_validation_local():
         ("vad_level invalid", lambda r: r.set_vad_level(2)),
         ("noise_threshold out of range", lambda r: r.set_noise_threshold(4.1)),
         ("diarization invalid", lambda r: r.set_speaker_diarization(2)),
+        (
+            "enable_speaker_context invalid",
+            lambda r: (r.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER), r.set_enable_speaker_context(3)),
+        ),
+        (
+            "enable_speaker_context without diarization",
+            lambda r: r.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC),
+        ),
     ]
     for name, apply in cases:
         recognizer = make_recognizer()
@@ -396,6 +516,15 @@ def test_validation_local():
         lambda r: (r.set_need_vad(0), r.set_vad_silence_time(100)),  # only validated with needvad=1
         lambda r: r.set_voice_format(12),
         lambda r: r.set_word_info(100),
+        lambda r: (
+            r.set_speaker_diarization(SPEAKER_DIARIZATION_CLUSTER),
+            r.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC),
+            r.set_speaker_context_id(_CONTEXT_ID),
+        ),
+        lambda r: (
+            r.set_speaker_diarization(SPEAKER_DIARIZATION_VOICEPRINT),
+            r.set_enable_speaker_context(SPEAKER_CONTEXT_ASYNC),
+        ),
     ]
     for apply in valid:
         recognizer = make_recognizer()

@@ -5,6 +5,15 @@ Usage::
     python v3_realtime_asr.py -f ../test.pcm
     python v3_realtime_asr.py -f ../test.pcm -e bigmodel -lang zh
 
+Speaker diarization can be made resumable across connections
+("断点续传")::
+
+    # 1st connection: keep the printed speaker_context_id
+    python v3_realtime_asr.py -f ../test.pcm -e bigmodel -diarization 1 -speaker-context 1
+    # after a reconnect (or any later connection within 24h): reuse it
+    python v3_realtime_asr.py -f ../test.pcm -e bigmodel -diarization 1 -speaker-context 1 \\
+        -speaker-context-id <speaker_context_id>
+
 Prerequisites:
   1. Create a TRTC application (SDKAppID + SDK secret key; v3 does not need
      the Tencent Cloud APPID)
@@ -26,6 +35,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 class MyListener(v3.SpeechRecognitionListener):
     def on_recognition_start(self, response):
         logging.info("recognition started, voice_id=%s", response.voice_id)
+        if response.speaker_continue is not None:
+            logging.info(
+                "speaker context: status=%r id=%s",
+                response.speaker_continue.continue_status,
+                response.speaker_continue.speaker_context_id,
+            )
 
     def on_sentence_begin(self, response):
         logging.info("sentence begin, index=%d", response.result.index)
@@ -57,6 +72,17 @@ async def main() -> int:
     )
     parser.add_argument("-diarization", type=int, default=0, help="0=off 1=cluster 3=voiceprint")
     parser.add_argument("-word-info", type=int, default=0, help="word-level timestamps")
+    parser.add_argument(
+        "-speaker-context",
+        type=int,
+        default=0,
+        help="resumable diarization: 0=off, 1=sync (report resumed/degraded), 2=async (id only)",
+    )
+    parser.add_argument(
+        "-speaker-context-id",
+        default="",
+        help="speaker_context_id printed by an earlier run: resume the same speaker identities",
+    )
     args = parser.parse_args()
 
     # The bigmodel engine is best used with an explicit language; every other
@@ -83,9 +109,27 @@ async def main() -> int:
         recognizer.set_word_info(args.word_info)
     if args.diarization:
         recognizer.set_speaker_diarization(args.diarization)
+    # Speaker-context persistence requires speaker diarization; the SDK rejects
+    # the combination locally otherwise.
+    if args.speaker_context:
+        recognizer.set_enable_speaker_context(args.speaker_context)
+    if args.speaker_context_id:
+        recognizer.set_speaker_context_id(args.speaker_context_id)
 
-    # v3 start() waits for the server ack: auth/param errors raise here.
+    # v3 start() waits for the server ack: auth/param errors raise here. While
+    # resuming a speaker context the ack arrives once the server has applied
+    # the stored snapshot.
     await recognizer.start()
+
+    # The handshake result is also available without a callback. Persist the
+    # id: passing it back on the next connection keeps speaker ids stable.
+    speaker_continue = recognizer.speaker_continue
+    if speaker_continue is not None:
+        logging.info(
+            "speaker context id: %s (status: %r) — reuse it with -speaker-context-id",
+            speaker_continue.speaker_context_id,
+            speaker_continue.continue_status,
+        )
 
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, lambda: open(args.file, "rb").read())

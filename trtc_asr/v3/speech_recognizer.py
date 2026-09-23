@@ -49,12 +49,16 @@ from trtc_asr.sdkinfo import sdk_report_params
 from trtc_asr.usersig import gen_user_sig
 from trtc_asr.v3.wire import (
     ACK_TIMEOUT,
+    SPEAKER_CONTEXT_ACK_TIMEOUT,
+    SPEAKER_CONTEXT_SYNC,
     START_FRAME_MAX_BYTES,
     STREAM_FRAME_MAX_BYTES,
     SPEAKER_DIARIZATION_OFF,
     SPEAKER_DIARIZATION_VOICEPRINT,
     Context,
+    SpeakerContinue,
     SpeakerRole,
+    validate_speaker_context,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,6 +159,10 @@ class SpeechRecognitionResponse:
     message_id: str = ""
     final: int = 0
     result: Result = field(default_factory=Result)
+    # Speaker-context handshake result, present in the first response only
+    # when the session enabled the speaker context (see
+    # set_enable_speaker_context); it also reaches on_recognition_start.
+    speaker_continue: Optional[SpeakerContinue] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "SpeechRecognitionResponse":
@@ -187,6 +195,12 @@ class SpeechRecognitionResponse:
             finish_silence_ms=result_data.get("finish_silence_ms", 0),
             last_token_runtime_ms=result_data.get("last_token_runtime_ms", 0),
         )
+        speaker_continue_data = data.get("speaker_continue")
+        speaker_continue = (
+            SpeakerContinue.from_dict(speaker_continue_data)
+            if isinstance(speaker_continue_data, dict)
+            else None
+        )
         return cls(
             code=data.get("code", 0),
             message=data.get("message", ""),
@@ -194,6 +208,7 @@ class SpeechRecognitionResponse:
             message_id=data.get("message_id", ""),
             final=data.get("final", 0),
             result=result,
+            speaker_continue=speaker_continue,
         )
 
 
@@ -279,6 +294,13 @@ class SpeechRecognizer:
         self._voice_id = ""
         self._language = ""
         self._context: Optional[Context] = None
+        # Speaker context ("断点续传"): the requested mode (0/1/2) and the id
+        # issued by an earlier session.
+        self._enable_speaker_context = 0
+        self._speaker_context_id = ""
+        # Handshake result of the first response, exposed via the
+        # speaker_continue property.
+        self._speaker_continue: Optional[SpeakerContinue] = None
 
         self._write_timeout = DEFAULT_WRITE_TIMEOUT
         self._stop_timeout = DEFAULT_STOP_TIMEOUT
@@ -358,6 +380,44 @@ class SpeechRecognizer:
 
     def set_voiceprint_ids(self, ids: List[str]) -> None:
         self._voiceprint_ids = list(ids or [])
+
+    def set_enable_speaker_context(self, mode: int) -> None:
+        """Make the speaker-diarization session resumable
+        ("说话人分离断点续传") and select how the server reports the
+        handshake:
+
+        ``SPEAKER_CONTEXT_OFF`` (0) no speaker context is saved or returned
+        (default), and set_speaker_context_id is ignored;
+        ``SPEAKER_CONTEXT_SYNC`` (1) the first response waits for the stored
+        snapshot to be applied and reports the outcome through
+        SpeakerContinue.continue_status;
+        ``SPEAKER_CONTEXT_ASYNC`` (2) the first response answers immediately
+        with the speaker_context_id only (no status) — use it to keep
+        reconnects fast.
+
+        Requires set_speaker_diarization(1) or (3). See SpeakerContinue for
+        the reconnect workflow.
+        """
+        self._enable_speaker_context = mode
+
+    def set_speaker_context_id(self, context_id: str) -> None:
+        """Pass back the speaker_context_id returned by a previous session
+        (SpeakerContinue.speaker_context_id) so this session resumes the same
+        speaker identities instead of numbering speakers from scratch.
+
+        Only effective together with set_enable_speaker_context(1) or (2).
+        The server ignores an expired or unknown id and starts a new session,
+        so a stale value does not fail the connection; always overwrite the
+        stored id with the one returned by the latest first response.
+        """
+        self._speaker_context_id = (context_id or "").strip()
+
+    @property
+    def speaker_continue(self) -> Optional[SpeakerContinue]:
+        """Speaker-context result carried by the first response, or None when
+        the session did not enable the speaker context. Available once
+        :meth:`start` returns; also delivered to ``on_recognition_start``."""
+        return self._speaker_continue
 
     def set_voice_id(self, voice_id: str) -> None:
         self._voice_id = voice_id
@@ -480,6 +540,7 @@ class SpeechRecognizer:
             self._speaker_roles,
             self._voiceprint_ids,
         )
+        validate_speaker_context(self._enable_speaker_context, self._speaker_diarization)
         validate_vad_tuning(self._vad_level, self._noise_threshold)
         if self._max_speak_time and not (
             MIN_MAX_SPEAK_TIME <= self._max_speak_time <= MAX_MAX_SPEAK_TIME
@@ -574,6 +635,12 @@ class SpeechRecognizer:
                 params["speaker_roles"] = [r.to_wire() for r in self._speaker_roles]
             if self._voiceprint_ids:
                 params["voiceprint_ids"] = list(self._voiceprint_ids)
+        # Speaker context ("断点续传") is only sent when the caller opted in;
+        # the mode/diarization combination is validated locally.
+        if self._enable_speaker_context:
+            params["enable_speaker_context"] = self._enable_speaker_context
+            if self._speaker_context_id:
+                params["speaker_context_id"] = self._speaker_context_id
         if self._context is not None:
             wire = self._context.to_wire()
             if wire:
@@ -640,9 +707,11 @@ class SpeechRecognizer:
             raise ASRError(ERR_WRITE_FAILED, "send start frame failed: {}".format(exc)) from exc
 
         # Wait for the ack. A failure arrives as a structured error frame
-        # ({code,message,voice_id}) followed by a normal close.
+        # ({code,message,voice_id}) followed by a normal close. Resuming a
+        # speaker context in sync mode makes the server apply the stored
+        # snapshot before answering, so that path gets a longer budget.
         try:
-            message = await asyncio.wait_for(self._ws.recv(), timeout=ACK_TIMEOUT)
+            message = await asyncio.wait_for(self._ws.recv(), timeout=self._ack_timeout())
         except Exception as exc:
             await self._close()
             raise ASRError(ERR_READ_FAILED, "read start ack failed: {}".format(exc)) from exc
@@ -660,16 +729,40 @@ class SpeechRecognizer:
             await self._close()
             raise ASRError(code, ack.get("message", ""))
 
+        # speaker_continue is present only when the session enabled the
+        # speaker context; it carries the id to persist for a later resume.
+        speaker_continue_data = ack.get("speaker_continue")
+        self._speaker_continue = (
+            SpeakerContinue.from_dict(speaker_continue_data)
+            if isinstance(speaker_continue_data, dict)
+            else None
+        )
+
         if ack.get("result") is not None:
             return message
         return None
+
+    def _ack_timeout(self) -> float:
+        """How long _connect waits for the first response. Resuming a speaker
+        context in sync mode makes the server apply the stored snapshot before
+        answering; every other case answers immediately."""
+        if self._enable_speaker_context == SPEAKER_CONTEXT_SYNC and self._speaker_context_id:
+            return SPEAKER_CONTEXT_ACK_TIMEOUT
+        return ACK_TIMEOUT
 
     async def _read_loop(self, first_result: Optional[bytes]) -> None:
         try:
             self._callback_failed = False
             self._safe_callback(
                 self._listener.on_recognition_start,
-                SpeechRecognitionResponse(code=0, message="success", voice_id=self._voice_id),
+                SpeechRecognitionResponse(
+                    code=0,
+                    message="success",
+                    voice_id=self._voice_id,
+                    # The ack itself is consumed by _connect; re-attach the
+                    # speaker context it carried for callback-style callers.
+                    speaker_continue=self._speaker_continue,
+                ),
             )
             if self._callback_failed:
                 return

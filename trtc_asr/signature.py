@@ -16,6 +16,11 @@ SPEAKER_DIARIZATION_OFF = 0
 SPEAKER_DIARIZATION_CLUSTER = 1
 SPEAKER_DIARIZATION_VOICEPRINT = 3
 
+# Speaker context ("断点续传") modes for the enable_speaker_context parameter.
+SPEAKER_CONTEXT_OFF = 0
+SPEAKER_CONTEXT_SYNC = 1
+SPEAKER_CONTEXT_ASYNC = 2
+
 
 @dataclass
 class SpeakerRole:
@@ -107,6 +112,13 @@ class SignatureParams:
     # into online clustering for both modes.
     speaker_number: int = 0
 
+    # enable_speaker_context makes the diarization session resumable
+    # ("断点续传"): 0=off (default), 1=report the restore status on the first
+    # response, 2=answer with the id only. Requires speaker_diarization 1/3.
+    enable_speaker_context: int = 0
+    # speaker_context_id carries the id issued by a previous session. Only
+    # sent together with enable_speaker_context.
+    speaker_context_id: str = ""
     # speaker_roles carries temporary voiceprint enrollment audio, serialized
     # into the speaker_roles JSON array. Only sent when speaker_diarization
     # is 3.
@@ -193,6 +205,10 @@ class SignatureParams:
             m["speaker_diarization"] = str(self.speaker_diarization)
             if self.speaker_number != 0:
                 m["speaker_number"] = str(self.speaker_number)
+        if self.enable_speaker_context != 0:
+            m["enable_speaker_context"] = str(self.enable_speaker_context)
+            if self.speaker_context_id:
+                m["speaker_context_id"] = self.speaker_context_id
         # speaker_roles / voiceprintids only apply to the voiceprint role
         # authentication mode.
         if self.speaker_diarization == SPEAKER_DIARIZATION_VOICEPRINT:

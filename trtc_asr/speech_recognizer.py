@@ -20,6 +20,7 @@ from trtc_asr.errors import (
     ERR_ALREADY_STARTED,
     ERR_AUTH_FAILED,
     ERR_CONNECT_FAILED,
+    ERR_INVALID_PARAM,
     ERR_NOT_STARTED,
     ERR_READ_FAILED,
     ERR_WRITE_FAILED,
@@ -30,6 +31,9 @@ from trtc_asr.params import (
     validate_vad_tuning,
 )
 from trtc_asr.signature import (
+    SPEAKER_CONTEXT_ASYNC,
+    SPEAKER_CONTEXT_OFF,
+    SPEAKER_CONTEXT_SYNC,
     SPEAKER_DIARIZATION_CLUSTER,
     SPEAKER_DIARIZATION_OFF,
     SPEAKER_DIARIZATION_VOICEPRINT,
@@ -164,6 +168,26 @@ class Result:
 
 
 @dataclass
+class SpeakerContinue:
+    """说话人分离断点续传的首响应握手结果。
+
+    continue_status: fresh（新会话）/ resumed（锚点已恢复）/ degraded / disabled；
+    异步模式（enable_speaker_context=2）不返回该字段。
+    speaker_context_id: 下次连接经 set_speaker_context_id 传回的上下文 ID。
+    """
+
+    continue_status: str = ""
+    speaker_context_id: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpeakerContinue":
+        return cls(
+            continue_status=data.get("continue_status", ""),
+            speaker_context_id=data.get("speaker_context_id", ""),
+        )
+
+
+@dataclass
 class SpeechRecognitionResponse:
     """Response message from the ASR service."""
 
@@ -173,6 +197,8 @@ class SpeechRecognitionResponse:
     message_id: str = ""
     final: int = 0
     result: Result = field(default_factory=Result)
+    # 说话人分离断点续传的首响应握手结果；仅 enable_speaker_context 开启时返回。
+    speaker_continue: Optional[SpeakerContinue] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> SpeechRecognitionResponse:
@@ -205,6 +231,7 @@ class SpeechRecognitionResponse:
             finish_silence_ms=result_data.get("finish_silence_ms", 0),
             last_token_runtime_ms=result_data.get("last_token_runtime_ms", 0),
         )
+        speaker_continue_data = data.get("speaker_continue")
         return cls(
             code=data.get("code", 0),
             message=data.get("message", ""),
@@ -212,6 +239,11 @@ class SpeechRecognitionResponse:
             message_id=data.get("message_id", ""),
             final=data.get("final", 0),
             result=result,
+            speaker_continue=(
+                SpeakerContinue.from_dict(speaker_continue_data)
+                if speaker_continue_data
+                else None
+            ),
         )
 
 
@@ -299,6 +331,9 @@ class SpeechRecognizer:
         self._max_speak_time = 0
         self._input_sample_rate = 0
         self._speaker_diarization = 0
+        self._enable_speaker_context = 0
+        self._speaker_context_id = ""
+        self.speaker_continue: Optional[SpeakerContinue] = None
         self._speaker_number = 0
         self._speaker_roles: List[SpeakerRole] = []
         self._voiceprint_ids: List[str] = []
@@ -431,6 +466,24 @@ class SpeechRecognizer:
         (default). It applies to both diarization modes: the server feeds it
         into the online clustering."""
         self._speaker_number = n
+
+    def set_enable_speaker_context(self, mode: int) -> None:
+        """说话人分离断点续传：让服务端保存已固化的说话人锚点并签发
+        speaker_context_id，重连时经 set_speaker_context_id 传回即可延续编号。
+
+        - SPEAKER_CONTEXT_SYNC (1)：首响应等快照恢复完成并回报 continue_status
+        - SPEAKER_CONTEXT_ASYNC (2)：首响应只返回 id，恢复在后台进行
+
+        需与 set_speaker_diarization(1/3) 同开，否则 start 本地报错。
+        注意 v2 的 on_recognition_start 在建连后本地合成（早于服务端首响应），
+        因此 speaker_continue 只能事后经 `speech_recognizer.speaker_continue` 读取。
+        """
+        self._enable_speaker_context = mode
+
+    def set_speaker_context_id(self, context_id: str) -> None:
+        """传回上次首响应返回的 speaker_context_id；过期或非法 ID 会被服务端
+        按新会话处理（重新签发），不会报错。"""
+        self._speaker_context_id = (context_id or "").strip()
 
     def set_speaker_roles(self, roles: List[SpeakerRole]) -> None:
         """Register temporary voiceprints for this session. Each role carries
@@ -597,6 +650,18 @@ class SpeechRecognizer:
             self._speaker_roles,
             self._voiceprint_ids,
         )
+        if self._enable_speaker_context not in (SPEAKER_CONTEXT_OFF, SPEAKER_CONTEXT_SYNC, SPEAKER_CONTEXT_ASYNC):
+            raise ASRError(
+                ERR_INVALID_PARAM,
+                "EnableSpeakerContext must be 0 (off), 1 (sync) or 2 (async), got {}".format(
+                    self._enable_speaker_context
+                ),
+            )
+        if self._enable_speaker_context != 0 and self._speaker_diarization == 0:
+            raise ASRError(
+                ERR_INVALID_PARAM,
+                "EnableSpeakerContext requires set_speaker_diarization(1) or (3)",
+            )
         validate_vad_tuning(self._vad_level, self._noise_threshold)
         if self._filter_empty_result is not None:
             validate_enum_option("FilterEmptyResult", self._filter_empty_result, (0, 1))
@@ -653,6 +718,8 @@ class SpeechRecognizer:
             input_sample_rate=self._input_sample_rate,
             speaker_diarization=self._speaker_diarization,
             speaker_number=self._speaker_number,
+            enable_speaker_context=self._enable_speaker_context,
+            speaker_context_id=self._speaker_context_id,
             speaker_roles=self._speaker_roles,
             voiceprint_ids=self._voiceprint_ids,
             language=self._language,
@@ -692,6 +759,10 @@ class SpeechRecognizer:
                     continue
 
                 resp = SpeechRecognitionResponse.from_dict(data)
+                if resp.speaker_continue is not None:
+                    # 首响应携带断点续传握手结果；v2 的 on_recognition_start
+                    # 在本条消息之前已本地合成，只能经属性读取。
+                    self.speaker_continue = resp.speaker_continue
 
                 if resp.code != 0:
                     # Terminal: finish the lifecycle before notifying, so a
