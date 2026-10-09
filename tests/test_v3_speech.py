@@ -18,8 +18,6 @@ from trtc_asr.v3 import (
     SPEAKER_CONTEXT_SYNC,
     SPEAKER_DIARIZATION_CLUSTER,
     SPEAKER_DIARIZATION_VOICEPRINT,
-    Context,
-    ContextKV,
     SpeakerRole,
     SpeechRecognitionListener,
     SpeechRecognizer,
@@ -184,9 +182,6 @@ def test_start_frame_wire(monkeypatch):
     recognizer.set_voiceprint_ids(["vp-1"])
     recognizer.set_enable_speaker_context(SPEAKER_CONTEXT_SYNC)
     recognizer.set_speaker_context_id(_CONTEXT_ID)
-    recognizer.set_context(
-        Context(text="bg", terms=["ASR"], general=[ContextKV(key="domain", value="Meeting")])
-    )
 
     async def run():
         await recognizer.start()
@@ -231,11 +226,7 @@ def test_start_frame_wire(monkeypatch):
     assert params["speaker_roles"] == [
         {"role_name": "teacher", "audio_url": "https://example.com/t.wav"}
     ]
-    assert params["context"] == {
-        "text": "bg",
-        "terms": ["ASR"],
-        "general": [{"key": "domain", "value": "Meeting"}],
-    }
+    assert "context" not in params
     # sdk_info telemetry is present (survives in server dumps).
     assert params["sdk_info"]["sdk_lang"] == "python"
     assert params["sdk_info"]["version"]

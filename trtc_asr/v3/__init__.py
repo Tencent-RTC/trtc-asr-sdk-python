@@ -71,8 +71,6 @@ from trtc_asr.v3.wire import (
     CONTINUE_STATUS_DEGRADED,
     CONTINUE_STATUS_DISABLED,
     AudioURLItem,
-    Context,
-    ContextKV,
     SpeakerContinue,
     SpeakerRole,
     Word,
@@ -113,8 +111,6 @@ __all__ = [
     "CONTINUE_STATUS_DISABLED",
     "SpeakerContinue",
     "AudioURLItem",
-    "Context",
-    "ContextKV",
     "SpeakerRole",
     "Word",
 ]

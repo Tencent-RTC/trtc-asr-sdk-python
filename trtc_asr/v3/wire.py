@@ -13,8 +13,8 @@ not needed (see :func:`new_credential`).
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, List
 
 from trtc_asr.credential import Credential
 from trtc_asr.errors import ASRError, ERR_AUTH_FAILED, ERR_INVALID_PARAM, ERR_SERVER_ERROR
@@ -78,40 +78,6 @@ def new_credential(sdk_app_id: int, secret_key: str) -> Credential:
     Tencent Cloud AppID.
     """
     return Credential(0, sdk_app_id, secret_key)
-
-
-@dataclass
-class ContextKV:
-    """A domain key-value pair of Context.general."""
-
-    key: str = ""
-    value: str = ""
-
-    def to_wire(self) -> Dict[str, Any]:
-        return {"key": self.key, "value": self.value}
-
-
-@dataclass
-class Context:
-    """Recognition context, aligned with Soniox / Volcengine semantics.
-
-    LLM-class engines can consume all three parts; traditional engines
-    degrade terms to hotwords and ignore text/general.
-    """
-
-    text: str = ""
-    terms: List[str] = field(default_factory=list)
-    general: List[ContextKV] = field(default_factory=list)
-
-    def to_wire(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {}
-        if self.text:
-            d["text"] = self.text
-        if self.terms:
-            d["terms"] = list(self.terms)
-        if self.general:
-            d["general"] = [kv.to_wire() for kv in self.general]
-        return d
 
 
 @dataclass

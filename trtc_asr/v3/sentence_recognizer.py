@@ -33,7 +33,6 @@ from trtc_asr.sdkinfo import sdk_report_params
 from trtc_asr.v3.wire import (
     SOURCE_TYPE_DATA,
     SOURCE_TYPE_URL,
-    Context,
     Word,
     decode_flat_response,
     offline_envelope,
@@ -80,8 +79,6 @@ class TranscribeRequest:
     speaker_diarization: int = 0
     speaker_number: int = 0
 
-    context: Optional[Context] = None
-
     def to_wire(self) -> dict:
         d: dict = {
             "engine_model_type": self.engine_model_type,
@@ -121,10 +118,6 @@ class TranscribeRequest:
             d["speaker_diarization"] = self.speaker_diarization
             if self.speaker_number:
                 d["speaker_number"] = self.speaker_number
-        if self.context is not None:
-            wire = self.context.to_wire()
-            if wire:
-                d["context"] = wire
         return d
 
 

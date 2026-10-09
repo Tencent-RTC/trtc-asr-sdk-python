@@ -42,7 +42,6 @@ from trtc_asr.v3.wire import (
     TASK_STATUS_SUCCESS,
     SPEAKER_DIARIZATION_VOICEPRINT,
     AudioURLItem,
-    Context,
     SpeakerRole,
     Word,
     decode_flat_response,
@@ -107,8 +106,6 @@ class CreateTranscriptionRequest:
 
     language: str = ""
 
-    context: Optional[Context] = None
-
     def to_wire(self) -> dict:
         d: dict = {
             "engine_model_type": self.engine_model_type,
@@ -166,10 +163,6 @@ class CreateTranscriptionRequest:
             d["noise_threshold"] = self.noise_threshold
         if self.language:
             d["language"] = self.language
-        if self.context is not None:
-            wire = self.context.to_wire()
-            if wire:
-                d["context"] = wire
         return d
 
 

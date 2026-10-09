@@ -55,7 +55,6 @@ from trtc_asr.v3.wire import (
     STREAM_FRAME_MAX_BYTES,
     SPEAKER_DIARIZATION_OFF,
     SPEAKER_DIARIZATION_VOICEPRINT,
-    Context,
     SpeakerContinue,
     SpeakerRole,
     validate_speaker_context,
@@ -293,7 +292,6 @@ class SpeechRecognizer:
         self._voiceprint_ids: List[str] = []
         self._voice_id = ""
         self._language = ""
-        self._context: Optional[Context] = None
         # Speaker context ("断点续传"): the requested mode (0/1/2) and the id
         # issued by an earlier session.
         self._enable_speaker_context = 0
@@ -424,11 +422,6 @@ class SpeechRecognizer:
 
     def set_language(self, lang: str) -> None:
         self._language = lang
-
-    def set_context(self, context: Optional[Context]) -> None:
-        """Set the recognition context (background text, terms, domain
-        key-values)."""
-        self._context = context
 
     def set_endpoint(self, endpoint: str) -> None:
         self._endpoint = endpoint or ""
@@ -641,10 +634,6 @@ class SpeechRecognizer:
             params["enable_speaker_context"] = self._enable_speaker_context
             if self._speaker_context_id:
                 params["speaker_context_id"] = self._speaker_context_id
-        if self._context is not None:
-            wire = self._context.to_wire()
-            if wire:
-                params["context"] = wire
         return params
 
     def _build_start_frame(self, user_sig: str) -> str:

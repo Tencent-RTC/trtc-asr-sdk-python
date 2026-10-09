@@ -16,7 +16,6 @@ from trtc_asr.v3 import (
     SPEAKER_DIARIZATION_CLUSTER,
     SPEAKER_DIARIZATION_VOICEPRINT,
     AudioURLItem,
-    Context,
     CreateTranscriptionRequest,
     FileRecognizer,
     SentenceRecognizer,
@@ -97,7 +96,6 @@ def test_transcribe_wire():
         filter_punc=1,
         input_sample_rate=8000,
         customization_id="cust-1",
-        context=Context(text="bg", terms=["ASR"]),
     )
 
     with patch(
@@ -129,7 +127,7 @@ def test_transcribe_wire():
     assert params["input_sample_rate"] == 8000
     assert params["customization_id"] == "cust-1"
     assert params["sdk_info"]["sdk_lang"] == "python"
-    assert params["context"] == {"text": "bg", "terms": ["ASR"]}
+    assert "context" not in params
     # snake_case everywhere — v1 PascalCase names must not appear.
     for bad in ("EngSerViceType", "SourceType", "VoiceFormat", "Data", "Url", "DataLen"):
         assert bad not in params
