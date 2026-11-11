@@ -7,6 +7,11 @@
 
 ## [未发布]
 
+### 文档
+
+- 安装说明改为从 GitHub tag 安装（`pip install git+https://...@v2.0.0`）；包尚未发布到 PyPI，原 `pip install trtc-asr` 无法使用。
+- 参数表移除暂未对外开放的请求字段（`customization_id`、`keyword_lib_id_list`、`replace_text_id`、`sentence_max_length`、`extra`）。
+
 ## [2.0.0] - 2026-10-09
 
 ### 变更
